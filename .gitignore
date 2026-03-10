@@ -1,0 +1,27 @@
+# Python / Environnement Virtuel
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
+
+# Streamlit
+.streamlit/
+secrets.toml
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Fichiers de données temporaires (optionnel, pour éviter de pousser des gros fichiers)
+*.csv
+*.xlsx
+*.xls
+.DS_Store
