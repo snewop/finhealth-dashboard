@@ -14,6 +14,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+import google.generativeai as genai
 
 from data_handler import (
     apply_mapping,
@@ -1178,26 +1179,118 @@ def main() -> None:
                 _render_full_dashboard(metrics_df, currency)
 
 
+def render_ai_assistant_tab(metrics_df: pd.DataFrame, company_info: dict) -> None:
+    """Affiche le chat de l'Assistant IA basé sur Gemini 1.5 Flash."""
+    st.markdown("### 💬 Assistant IA Financier")
+    st.markdown("Posez vos questions sur la santé financière de l'entreprise étudiée. L'IA a accès à tous les ratios calculés.")
+
+    # Vérification de la clé API
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key or api_key == "VOTRE_CLE_API_GEMINI_ICI" or api_key == "TO_BE_FILLED_BY_USER":
+        st.info("ℹ️ La clé API Gemini n'est pas configurée. Veuillez l'ajouter dans vos secrets Streamlit (`.streamlit/secrets.toml` en local ou Streamlit Cloud Secrets) pour activer l'assistant.")
+        return
+
+    genai.configure(api_key=api_key)
+
+    # Initialisation de l'historique
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # Bouton pour effacer l'historique
+    col1, col2 = st.columns([8, 2])
+    with col2:
+        if st.button("🗑️ Effacer l'historique", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
+
+    # Configuration du modèle et du contexte initial
+    latest = metrics_df.iloc[-1]
+    company_name = company_info.get("name", "l'entreprise")
+    sector = company_info.get("sector", "Non spécifié")
+    
+    context = f"""
+    Tu es un Analyste Financier Senior. Ton rôle est d'analyser les résultats d'une entreprise de manière pédagogique, structurée et précise, exclusivement en français.
+    Tu aides un utilisateur à comprendre la santé financière de l'entreprise {company_name} (Secteur: {sector}).
+    Voici les dernières métriques clés (Année {latest.get('year', 'N/A')}) :
+    - Chiffre d'Affaires : {format_large_number(latest.get('revenue')) if pd.notna(latest.get('revenue')) else 'N/A'}
+    - Résultat Net : {format_large_number(latest.get('net_income')) if pd.notna(latest.get('net_income')) else 'N/A'}
+    - Marge Nette : {format_percent(latest.get('net_margin')) if pd.notna(latest.get('net_margin')) else 'N/A'}
+    - ROE : {format_percent(latest.get('roe')) if pd.notna(latest.get('roe')) else 'N/A'}
+    - ROA : {format_percent(latest.get('roa')) if pd.notna(latest.get('roa')) else 'N/A'}
+    - Current Ratio (Liquidité) : {latest.get('current_ratio'):.2f}x si disponible
+    - Debt/Equity (Levier) : {latest.get('d_e_ratio'):.2f}x si disponible
+    - Altman Z-Score : {latest.get('z_score'):.2f} si disponible
+    - Piotroski F-Score : {latest.get('f_score')} / 9 si disponible
+    - Score Santé Global FiHealth : {latest.get('health_score'):.1f} / 100 si disponible
+    Réponds de manière concise et experte aux questions de l'utilisateur. Ne donne pas de conseils d'investissement garantis, garde un ton analytique.
+    """
+
+    # Affichage des messages passés
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Zone de saisie utilisateur
+    if prompt := st.chat_input("Posez une question sur les résultats (ex: Que penser de la liquidité ?)..."):
+        # Affichage du message utilisateur
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Génération de la réponse de l'IA
+        with st.chat_message("assistant"):
+            try:
+                model = genai.GenerativeModel('gemini-2.5-flash')
+                
+                # Formatage de l'historique complet pour Gemini
+                # Gemini utilise "user" et "model". Streamlit utilise "user" et "assistant"
+                gemini_history = [{"role": "user", "parts": [context]}]
+                for msg in st.session_state.messages:
+                    gemini_role = "model" if msg["role"] == "assistant" else "user"
+                    gemini_history.append({"role": gemini_role, "parts": [msg["content"]]})
+                
+                # Le dernier message est déjà dans l'historique, on va appeler generate_content
+                # On retire le dernier message utilisateur pour l'envoyer comme nouveau prompt
+                # mais dans l'API Gemini standard, envoyer un "chat" object est plus propre
+                
+                chat_session = model.start_chat(history=gemini_history[:-1])
+                response = chat_session.send_message(prompt)
+                
+                st.markdown(response.text)
+                st.session_state.messages.append({"role": "assistant", "content": response.text})
+                
+            except Exception as e:
+                st.error(f"Erreur lors de la génération de la réponse : {str(e)}")
+
+
 def _render_full_dashboard(metrics_df: pd.DataFrame, currency: str) -> None:
     """Orchestre l'affichage complet du dashboard."""
     if metrics_df.empty:
         st.warning("Aucune donnée disponible pour construire le dashboard.")
         return
 
-    latest = metrics_df.iloc[-1]
-    prev = metrics_df.iloc[-2] if len(metrics_df) >= 2 else None
+    company_info = st.session_state.get("company_info", {})
 
-    # Nouvel indicateur d'Intelligence d'Analyse
-    render_executive_summary(latest, prev)
+    tab_dash, tab_ai = st.tabs(["📊 Dashboard Principal", "💬 Assistant IA"])
 
-    render_kpi_header(latest, currency)
-    render_profitability(latest, prev)
-    render_liquidity(latest, prev)
-    render_solvency(latest, prev)
-    render_scores(latest)
-    render_piotroski_details(latest)
-    render_charts(metrics_df, currency)
-    render_data_table(metrics_df)
+    with tab_dash:
+        latest = metrics_df.iloc[-1]
+        prev = metrics_df.iloc[-2] if len(metrics_df) >= 2 else None
+
+        # Nouvel indicateur d'Intelligence d'Analyse
+        render_executive_summary(latest, prev)
+
+        render_kpi_header(latest, currency)
+        render_profitability(latest, prev)
+        render_liquidity(latest, prev)
+        render_solvency(latest, prev)
+        render_scores(latest)
+        render_piotroski_details(latest)
+        render_charts(metrics_df, currency)
+        render_data_table(metrics_df)
+
+    with tab_ai:
+        render_ai_assistant_tab(metrics_df, company_info)
 
 
 if __name__ == "__main__":
