@@ -1104,6 +1104,63 @@ def render_mapping_ui(df_raw: pd.DataFrame, detected_mapping: dict) -> dict:
 # Application principale
 # ─────────────────────────────────────────────
 
+def render_landing_page() -> None:
+    st.markdown("<div style='margin-top: 40px;'></div>", unsafe_allow_html=True)
+    st.title("🚀 Bienvenue sur FinHealth Analyzer")
+    st.markdown("""
+        <p style="color:var(--muted); font-size:16px; margin-bottom: 32px;">
+            L'outil d'audit de santé financière propulsé par l'IA. 
+            Découvrez des insights immédiats et auditez la solvabilité des entreprises de votre choix.
+        </p>
+    """, unsafe_allow_html=True)
+
+    section_header("Quick Start : Exemples")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    def set_ticker(t: str):
+        st.session_state["analyze_ticker"] = t
+
+    with col1:
+        st.button("Apple (AAPL)", use_container_width=True, on_click=set_ticker, args=("AAPL",))
+    with col2:
+        st.button("NVIDIA (NVDA)", use_container_width=True, on_click=set_ticker, args=("NVDA",))
+    with col3:
+        st.button("LVMH (MC.PA)", use_container_width=True, on_click=set_ticker, args=("MC.PA",))
+
+    st.markdown("<div style='margin-top: 48px;'></div>", unsafe_allow_html=True)
+    section_header("Guide de Fonctionnalités")
+    
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        st.markdown("""
+        <div class="metric-card" style="text-align: center; height: 100%;">
+            <div style="font-size: 32px; margin-bottom: 12px;">📊</div>
+            <div style="font-weight: 600; margin-bottom: 8px; color: var(--text);">Dashboards Interactifs</div>
+            <div style="font-size: 13px; color: var(--muted);">Visualisez l'évolution temporelle des marges, de la croissance et de la liquidité avec des graphiques dynamiques.</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with f2:
+        st.markdown("""
+        <div class="metric-card" style="text-align: center; height: 100%;">
+            <div style="font-size: 32px; margin-bottom: 12px;">🛡️</div>
+            <div style="font-weight: 600; margin-bottom: 8px; color: var(--text);">Scores de Solvabilité</div>
+            <div style="font-size: 13px; color: var(--muted);">Calcul automatique du Piotroski F-Score et de l'Altman Z-Score pour prévenir les risques de faillite.</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with f3:
+        st.markdown("""
+        <div class="metric-card" style="text-align: center; height: 100%;">
+            <div style="font-size: 32px; margin-bottom: 12px;">💬</div>
+            <div style="font-weight: 600; margin-bottom: 8px; color: var(--text);">Assistant IA Financier</div>
+            <div style="font-size: 13px; color: var(--muted);">Interrogez un analyste virtuel (Gemini) directement intégré pour interpréter les résultats et ratios.</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div style='margin-top: 48px;'></div>", unsafe_allow_html=True)
+    st.info("💡 **Instruction :** Entrez un ticker dans la barre de recherche en haut pour commencer.")
+
+
 def main() -> None:
     # ── Sidebar ──
     with st.sidebar:
@@ -1154,16 +1211,25 @@ def main() -> None:
     # ─── Source : yfinance ───
     if "Ticker" in data_source:
         col_search, col_btn = st.columns([3, 1])
+        
+        default_ticker = ""
+        do_auto_search = False
+        if st.session_state.get("analyze_ticker"):
+            default_ticker = st.session_state["analyze_ticker"]
+            do_auto_search = True
+            st.session_state["analyze_ticker"] = ""
+            
         with col_search:
             ticker_input = st.text_input(
                 "Ticker boursier",
+                value=default_ticker,
                 placeholder="Ex : AAPL, MSFT, TTE.PA, MC.PA ...",
                 label_visibility="collapsed",
             )
         with col_btn:
             search_btn = st.button("Analyser", use_container_width=True)
 
-        if search_btn and ticker_input:
+        if (search_btn or do_auto_search) and ticker_input:
             with st.spinner(f"Chargement des données pour **{ticker_input.upper()}**..."):
                 try:
                     df_raw, company_info, market_data = load_from_yfinance(ticker_input)
@@ -1175,12 +1241,14 @@ def main() -> None:
                     st.session_state["source"] = "yfinance"
                 except YFRateLimitError as e:
                     st.warning(f"⚠️ {e}")
-                    return
+                    st.session_state.pop("df_raw", None)
                 except ValueError as e:
                     st.error(f"❌ {e}")
-                    return
+                    st.session_state.pop("df_raw", None)
 
-        if "df_raw" in st.session_state and st.session_state.get("source") == "yfinance":
+        query = "df_raw" in st.session_state and st.session_state.get("source") == "yfinance"
+
+        if query:
             df_raw = st.session_state["df_raw"]
             company_info = st.session_state.get("company_info", {})
             market_data = st.session_state.get("market_data", {})
@@ -1205,6 +1273,8 @@ def main() -> None:
                 metrics_df = compute_all_metrics(df_raw, market_data)
 
             _render_full_dashboard(metrics_df, disp_currency)
+        else:
+            render_landing_page()
 
     # ─── Source : fichier ───
     else:
