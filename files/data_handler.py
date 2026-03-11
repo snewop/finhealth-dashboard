@@ -267,24 +267,24 @@ def load_from_yfinance(ticker: str) -> tuple[pd.DataFrame, dict, dict]:
                 return None
 
             # ── Compte de résultat ──
-            row["revenue"] = get(income_stmt, "Total Revenue")
-            row["gross_profit"] = get(income_stmt, "Gross Profit")
+            row["revenue"] = get(income_stmt, "Total Revenue", "Operating Revenue")
+            row["gross_profit"] = get(income_stmt, "Gross Profit", "Total Revenue")
             row["ebit"] = get(income_stmt, "EBIT", "Operating Income")
             row["ebitda"] = get(income_stmt, "EBITDA", "Normalized EBITDA")
-            row["net_income"] = get(income_stmt, "Net Income")
+            row["net_income"] = get(income_stmt, "Net Income Common Stockholders", "Net Income")
             row["interest_expense"] = get(income_stmt, "Interest Expense")
 
             # ── Bilan ──
             row["total_assets"] = get(balance_sheet, "Total Assets")
             row["current_assets"] = get(balance_sheet, "Current Assets")
             row["inventories"] = get(balance_sheet, "Inventory")
-            row["cash"] = get(balance_sheet, "Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments")
+            row["cash"] = get(balance_sheet, "Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments", "Cash Financial")
             row["current_liabilities"] = get(balance_sheet, "Current Liabilities")
-            row["total_liabilities"] = get(balance_sheet, "Total Liabilities Net Minority Interest", "Total Liabilities")
-            row["total_debt"] = get(balance_sheet, "Total Debt", "Long Term Debt")
-            row["shareholders_equity"] = get(balance_sheet, "Stockholders Equity", "Total Equity Gross Minority Interest")
+            row["total_liabilities"] = get(balance_sheet, "Total Liabilities Net Minority Interest", "Total Liabilities", "Total Non Current Liabilities Net Minority Interest")
+            row["total_debt"] = get(balance_sheet, "Total Debt", "Long Term Debt", "Net Debt")
+            row["shareholders_equity"] = get(balance_sheet, "Stockholders Equity", "Total Equity Gross Minority Interest", "Common Stock Equity")
             row["retained_earnings"] = get(balance_sheet, "Retained Earnings")
-            row["shares_outstanding"] = get(balance_sheet, "Ordinary Shares Number")
+            row["shares_outstanding"] = get(balance_sheet, "Ordinary Shares Number", "Basic Average Shares")
 
             # ── Flux de trésorerie ──
             row["operating_cash_flow"] = get(cash_flow, "Operating Cash Flow", "Cash Flow From Continuing Operating Activities")

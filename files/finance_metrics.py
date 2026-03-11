@@ -17,11 +17,15 @@ import pandas as pd
 
 def _safe_divide(numerator: float, denominator: float, default: Optional[float] = None) -> Optional[float]:
     """Division sécurisée : retourne `default` si le dénominateur est nul ou None."""
-    if pd.isna(denominator) or denominator == 0:
+    if denominator is None or pd.isna(denominator) or denominator == 0:
         return default
-    if pd.isna(numerator):
+    if numerator is None or pd.isna(numerator):
         return default
-    return numerator / denominator
+    
+    try:
+        return float(numerator) / float(denominator)
+    except Exception:
+        return default
 
 
 # ─────────────────────────────────────────────
