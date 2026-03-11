@@ -335,6 +335,7 @@ def load_from_yfinance(ticker: str) -> tuple[pd.DataFrame, dict, dict]:
             "description": info.get("longBusinessSummary", ""),
             "website": info.get("website", ""),
             "logo": info.get("logo_url", ""),
+            "dividend_yield": info.get("trailingAnnualDividendYield", info.get("dividendYield", 0.0)),
         }
 
         return df, company_info, market_data
@@ -412,4 +413,23 @@ def load_news_from_yfinance(ticker: str, limit: int = 10) -> list[dict]:
         return news[:limit] if news else []
     except Exception as e:
         return []
+
+# Moyennes de marges sectorielles (Mock pour la V2.2)
+SECTOR_MARGINS = {
+    "Technology": {"gross_profit_margin": 0.55, "ebitda_margin": 0.25, "net_profit_margin": 0.18},
+    "Healthcare": {"gross_profit_margin": 0.60, "ebitda_margin": 0.20, "net_profit_margin": 0.12},
+    "Financial Services": {"gross_profit_margin": 0.80, "ebitda_margin": 0.40, "net_profit_margin": 0.25},
+    "Consumer Cyclical": {"gross_profit_margin": 0.35, "ebitda_margin": 0.12, "net_profit_margin": 0.05},
+    "Industrials": {"gross_profit_margin": 0.30, "ebitda_margin": 0.15, "net_profit_margin": 0.08},
+    "Energy": {"gross_profit_margin": 0.40, "ebitda_margin": 0.25, "net_profit_margin": 0.10},
+    "Utilities": {"gross_profit_margin": 0.45, "ebitda_margin": 0.35, "net_profit_margin": 0.15},
+    "Real Estate": {"gross_profit_margin": 0.65, "ebitda_margin": 0.50, "net_profit_margin": 0.30},
+    "Communication Services": {"gross_profit_margin": 0.50, "ebitda_margin": 0.22, "net_profit_margin": 0.12},
+    "Consumer Defensive": {"gross_profit_margin": 0.35, "ebitda_margin": 0.15, "net_profit_margin": 0.06},
+    "Basic Materials": {"gross_profit_margin": 0.25, "ebitda_margin": 0.18, "net_profit_margin": 0.08},
+}
+
+def get_sector_averages(sector: str) -> dict:
+    """Retourne les marges sectorielles ou une moyenne par défaut."""
+    return SECTOR_MARGINS.get(sector, SECTOR_MARGINS["Industrials"])
 

@@ -25,6 +25,7 @@ from data_handler import (
     format_large_number,
     format_percent,
     format_ratio,
+    get_sector_averages,
     load_from_file,
     load_from_yfinance,
     load_news_from_yfinance,
@@ -927,9 +928,9 @@ def render_charts(metrics_df: pd.DataFrame, currency: str = "USD") -> None:
 
     df = metrics_df.sort_values("year")
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "Revenus & Marges", "Liquidité & Levier",
-        "Scores", "Rentabilité"
+        "Scores", "Rentabilité", "Comparaison & Dividendes"
     ])
 
     # ── Tab 1 : Revenus & Marges ──
@@ -1065,6 +1066,66 @@ def render_charts(metrics_df: pd.DataFrame, currency: str = "USD") -> None:
                 plotly_layout(fig, "Score Santé Composite (0–100)")
                 fig.update_yaxes(range=[0, 100])
                 st.plotly_chart(fig, use_container_width=True)
+
+    # ── Tab 5 : Comparaison & Dividendes ──
+    with tab5:
+        col1, col2 = st.columns(2)
+        company_info = st.session_state.get("company_info", {})
+        sector = company_info.get("sector", "Industrials")
+        
+        with col1:
+            st.markdown("##### 🏢 Comparaison Sectorielle")
+            st.caption(f"Secteur de référence : {sector}")
+            sector_avg = get_sector_averages(sector)
+            
+            latest = df.iloc[-1] if not df.empty else pd.Series()
+            
+            categories = ['Marge Brute', 'Marge EBITDA', 'Marge Nette']
+            ticker_vals = [
+                latest.get("gross_margin", 0) * 100,
+                latest.get("ebitda_margin", 0) * 100,
+                latest.get("net_margin", 0) * 100
+            ]
+            sector_vals = [
+                sector_avg.get("gross_profit_margin", 0) * 100,
+                sector_avg.get("ebitda_margin", 0) * 100,
+                sector_avg.get("net_profit_margin", 0) * 100
+            ]
+            
+            fig_cmp = go.Figure()
+            fig_cmp.add_trace(go.Bar(
+                x=categories, y=ticker_vals, name=company_info.get("name", "Ticker"), marker_color="#38bdf8"
+            ))
+            fig_cmp.add_trace(go.Bar(
+                x=categories, y=sector_vals, name=f"Moy. {sector}", marker_color="#475569"
+            ))
+            fig_cmp.update_layout(
+                barmode='group',
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#e2e8f0', family='Inter'),
+                margin=dict(l=20, r=20, t=30, b=20),
+                height=300
+            )
+            st.plotly_chart(fig_cmp, use_container_width=True)
+            
+        with col2:
+            st.markdown("##### 💸 Simulateur de Dividendes")
+            yield_pct = company_info.get("dividend_yield", 0.0)
+            if yield_pct and yield_pct > 0:
+                st.info(f"Rendement actuel estimé : **{yield_pct*100:.2f}%**")
+                invested = st.number_input("Montant investi (Simulé)", min_value=100, max_value=10_000_000, value=10000, step=1000)
+                annual_div = invested * yield_pct
+                
+                st.markdown(f"""
+                <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;margin-top:16px;">
+                    <div style="font-size:12px;color:var(--muted);text-transform:uppercase;">Dividendes annuels projetés</div>
+                    <div style="font-size:32px;font-weight:700;color:var(--green);">{annual_div:,.2f} {currency}</div>
+                    <div style="font-size:11px;color:var(--muted);margin-top:4px;">Basé sur le rendement historique et le prix actuel</div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.warning("L'entreprise ne verse pas de dividendes ou les données historiques sont indisponibles.")
 
 
 def render_data_table(metrics_df: pd.DataFrame) -> None:
