@@ -485,7 +485,11 @@ def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFram
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def generate_ai_explanation(metric_name: str, value: float, ticker: str) -> str:
-    api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else None
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY")
+    except Exception:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        
     if not api_key or api_key in ["VOTRE_CLE_API_GEMINI_ICI", "TO_BE_FILLED_BY_USER", ""]:
         return "Clé API intégrée ou locale requise pour l'analyse IA."
         
@@ -504,10 +508,10 @@ def analyze_sentiment_and_cashflow(ticker: str, news: list[dict], latest_metrics
     try:
         api_key = st.secrets.get("GEMINI_API_KEY")
     except Exception:
-        api_key = None
+        api_key = os.environ.get("GEMINI_API_KEY")
         
     if not api_key or api_key in ["VOTRE_CLE_API_GEMINI_ICI", "TO_BE_FILLED_BY_USER", ""]:
-        return "Clé API intégrée ou locale requise.", "Non analysé.", 50
+        return "Clé API requise (secrets.toml ou env).", "Non analysé.", 50
 
     try:
         from google import genai
@@ -529,13 +533,11 @@ Génère un résumé macro ultra-concis en 3 petits bullet points (Bullish vs Be
 Le Cash Flow Opérationnel est-il cohérent par rapport au résultat net ? (Réponds en 1 à 2 phrases max, sois ultra-direct).
 
 Format strict demandé (respecte exactement la casse de ces balises) :
-SCORE: [0-100]
+SCORE: <ton score entre 0 et 100>
 SENTIMENT:
-- [Point 1]
-- [Point 2]
-- [Point 3]
+<tes 3 bullet points ici>
 ANOMALIE_CF:
-[Analyse Cash Flow]
+<ton analyse du cash flow ici>
 """
         response = client.chats.create(model="gemini-2.5-flash").send_message(prompt).text
         
@@ -1377,7 +1379,7 @@ def main() -> None:
         try:
             api_key = st.secrets.get("GEMINI_API_KEY")
         except Exception:
-            api_key = None
+            api_key = os.environ.get("GEMINI_API_KEY")
             
         if api_key and api_key not in ["VOTRE_CLE_API_GEMINI_ICI", "TO_BE_FILLED_BY_USER", ""]:
             st.markdown("""
