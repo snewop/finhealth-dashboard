@@ -61,119 +61,137 @@ st.set_page_config(
 # ── Design CSS personnalisé ──
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
     :root {
-        --bg: #0a0f1a;
-        --surface: #111827;
-        --surface2: #1a2235;
-        --border: #1e2d45;
-        --accent: #3b82f6;
-        --accent2: #06b6d4;
-        --text: #e2e8f0;
-        --muted: #64748b;
-        --green: #22c55e;
+        --bg: #020617; /* Deep Dark Mode Base */
+        --bg-grad: radial-gradient(circle at top right, #0f172a, #020617);
+        --surface: rgba(255, 255, 255, 0.02);
+        --surface-hover: rgba(255, 255, 255, 0.04);
+        --border: rgba(255, 255, 255, 0.1);
+        --border-hover: rgba(255, 255, 255, 0.2);
+        --accent: #38bdf8; /* Sleek Cyan/Blue */
+        --accent-glow: rgba(56, 189, 248, 0.15);
+        --text: #f8fafc;
+        --muted: #94a3b8;
+        --green: #10b981;
         --amber: #f59e0b;
         --red: #ef4444;
     }
 
     html, body, [class*="css"] {
-        font-family: 'DM Mono', monospace;
-        background-color: var(--bg) !important;
+        font-family: 'Inter', sans-serif !important;
+        background: var(--bg) !important;
+        background-image: var(--bg-grad) !important;
         color: var(--text) !important;
     }
 
-    h1, h2, h3 { font-family: 'Syne', sans-serif !important; }
+    /* Shimmer Effect for Data Loading Feel */
+    @keyframes shimmer {
+        0% { background-position: -1000px 0; }
+        100% { background-position: 1000px 0; }
+    }
 
-    .stApp { background-color: var(--bg) !important; }
+    .stApp { 
+        background-color: transparent !important; 
+    }
 
     section[data-testid="stSidebar"] {
-        background: var(--surface) !important;
+        background: rgba(2, 6, 23, 0.8) !important;
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         border-right: 1px solid var(--border) !important;
     }
 
     .metric-card {
-        background: var(--surface2);
+        background: var(--surface);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
         border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 18px 20px;
-        margin-bottom: 8px;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-        position: relative; /* Pour le tooltip absolu */
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 16px;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        position: relative;
+        overflow: hidden;
     }
+    
+    /* Subtle inner shimmer line */
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: -100%; width: 50%; height: 100%;
+        background: linear-gradient(to right, transparent, rgba(255,255,255,0.03), transparent);
+        transform: skewX(-20deg);
+        transition: 0.7s;
+    }
+    .metric-card:hover::before {
+        left: 150%;
+    }
+
     .metric-card:hover { 
-        border-color: var(--accent); 
-        transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+        background: var(--surface-hover);
+        border-color: var(--border-hover); 
+        transform: translateY(-4px) scale(1.01);
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 20px var(--accent-glow);
     }
 
     /* Info-bulles pur CSS */
     .tooltip-container {
         position: relative;
         display: inline-block;
-        border-bottom: 1px dotted var(--muted);
+        border-bottom: 1px dashed var(--muted);
         cursor: help;
     }
     
     .tooltip-container .tooltip-text {
         visibility: hidden;
-        width: 220px;
-        background-color: var(--surface);
+        width: 240px;
+        background-color: rgba(15, 23, 42, 0.95);
+        backdrop-filter: blur(8px);
         color: var(--text);
         text-transform: none;
         letter-spacing: normal;
         text-align: center;
         border-radius: 8px;
-        padding: 8px;
-        font-size: 11px;
+        padding: 10px;
+        font-size: 12px;
         border: 1px solid var(--border);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        
-        /* Position */
+        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
         position: absolute;
         z-index: 50;
-        bottom: 125%;
+        bottom: 130%;
         left: 50%;
-        margin-left: -110px;
-        
-        /* Animation */
+        margin-left: -120px;
         opacity: 0;
-        transition: opacity 0.3s;
-    }
-
-    .tooltip-container .tooltip-text::after {
-        content: "";
-        position: absolute;
-        top: 100%;
-        left: 50%;
-        margin-left: -5px;
-        border-width: 5px;
-        border-style: solid;
-        border-color: var(--surface) transparent transparent transparent;
+        transition: opacity 0.3s, bottom 0.3s;
     }
 
     .tooltip-container:hover .tooltip-text {
         visibility: visible;
         opacity: 1;
+        bottom: 140%;
     }
 
     .metric-label {
-        font-size: 11px;
+        font-size: 12px;
         color: var(--muted);
         text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 4px;
+        letter-spacing: 0.1em;
+        font-weight: 500;
+        margin-bottom: 8px;
     }
     .metric-value {
-        font-size: 22px;
-        font-weight: 600;
+        font-size: 28px;
+        font-weight: 700;
         color: var(--text);
-        font-family: 'Syne', sans-serif;
+        letter-spacing: -0.02em;
     }
     .metric-delta {
-        font-size: 11px;
-        margin-top: 3px;
+        font-size: 13px;
+        margin-top: 6px;
+        font-weight: 500;
     }
 
     .score-badge {
@@ -182,108 +200,151 @@ st.markdown("""
         border-radius: 20px;
         font-size: 13px;
         font-weight: 600;
+        border: 1px solid transparent;
     }
 
     .section-header {
-        font-family: 'Syne', sans-serif;
-        font-size: 13px;
-        font-weight: 700;
+        font-size: 14px;
+        font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.12em;
+        letter-spacing: 0.15em;
         color: var(--accent);
-        margin: 24px 0 12px 0;
-        border-left: 3px solid var(--accent);
-        padding-left: 10px;
+        margin: 32px 0 16px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .section-header::before {
+        content: '';
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 8px var(--accent);
     }
 
     .info-chip {
-        background: var(--surface2);
+        background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 3px 10px;
-        font-size: 11px;
+        border-radius: 8px;
+        padding: 4px 12px;
+        font-size: 12px;
         display: inline-block;
-        margin: 2px;
+        margin: 4px 4px 4px 0;
         color: var(--muted);
     }
 
+    /* Buttons Premium Interaction */
     .stButton>button {
-        background: var(--accent) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-family: 'DM Mono', monospace !important;
-        font-weight: 500 !important;
-        padding: 8px 20px !important;
-        transition: opacity 0.2s !important;
+        background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01)) !important;
+        backdrop-filter: blur(10px) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        padding: 10px 24px !important;
+        transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
     }
-    .stButton>button:hover { opacity: 0.85 !important; }
+    .stButton>button:hover { 
+        border-color: var(--accent) !important;
+        background: rgba(56, 189, 248, 0.1) !important;
+        color: var(--accent) !important;
+        transform: scale(1.05) translateY(-2px) !important;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2), 0 0 15px var(--accent-glow) !important;
+    }
 
     div[data-testid="metric-container"] {
-        background: var(--surface2) !important;
+        background: var(--surface) !important;
         border: 1px solid var(--border) !important;
-        border-radius: 10px !important;
-        padding: 14px !important;
+        border-radius: 16px !important;
+        padding: 20px !important;
+        backdrop-filter: blur(10px) !important;
     }
 
     .stTabs [data-baseweb="tab"] {
-        font-family: 'DM Mono', monospace !important;
-        font-size: 13px !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        padding-bottom: 12px !important;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        border-bottom-color: var(--border) !important;
+        margin-bottom: 24px !important;
     }
 
-    .stDataFrame { border-radius: 8px !important; }
+    /* Dataframes with Glassmorphism */
+    .stDataFrame { 
+        background: var(--surface) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 16px !important;
+        padding: 8px !important;
+    }
 
+    .warning-box, .success-box, .danger-box {
+        backdrop-filter: blur(12px);
+        border-radius: 12px;
+        padding: 16px 20px;
+        font-size: 14px;
+        margin: 12px 0;
+        border: 1px solid;
+    }
     .warning-box {
-        background: rgba(245, 158, 11, 0.1);
-        border: 1px solid var(--amber);
-        border-radius: 8px;
-        padding: 10px 14px;
-        font-size: 13px;
+        background: rgba(245, 158, 11, 0.05);
+        border-color: rgba(245, 158, 11, 0.2);
         color: var(--amber);
-        margin: 8px 0;
     }
     .success-box {
-        background: rgba(34, 197, 94, 0.1);
-        border: 1px solid var(--green);
-        border-radius: 8px;
-        padding: 10px 14px;
-        font-size: 13px;
+        background: rgba(16, 185, 129, 0.05);
+        border-color: rgba(16, 185, 129, 0.2);
         color: var(--green);
-        margin: 8px 0;
     }
     .danger-box {
-        background: rgba(239, 68, 68, 0.1);
-        border: 1px solid var(--red);
-        border-radius: 8px;
-        padding: 10px 14px;
-        font-size: 13px;
+        background: rgba(239, 68, 68, 0.05);
+        border-color: rgba(239, 68, 68, 0.2);
         color: var(--red);
-        margin: 8px 0;
+    }
+    
+    /* Custom Gradient Glows for Charts container */
+    [data-testid="stPlotlyChart"] {
+        position: relative;
+        z-index: 1;
+    }
+    [data-testid="stPlotlyChart"]::before {
+        content: '';
+        position: absolute;
+        top: 50%; left: 50%;
+        width: 70%; height: 70%;
+        background: radial-gradient(circle, var(--accent-glow) 0%, transparent 60%);
+        transform: translate(-50%, -50%);
+        z-index: -1;
+        pointer-events: none;
+        filter: blur(60px);
     }
 </style>
 """, unsafe_allow_html=True)
 
 PLOTLY_THEME = {
-    "paper_bgcolor": "#0a0f1a",
-    "plot_bgcolor": "#111827",
+    "paper_bgcolor": "rgba(0,0,0,0)",
+    "plot_bgcolor": "rgba(0,0,0,0)",
     "font_color": "#94a3b8",
-    "gridcolor": "#1e2d45",
-    "colorscale": px.colors.sequential.Blues_r,
+    "gridcolor": "rgba(255,255,255,0.05)",
 }
 
 
-def plotly_layout(fig: go.Figure, title: str = "", height: int = 320) -> go.Figure:
-    """Applique le thème sombre cohérent à une figure Plotly."""
+def plotly_layout(fig: go.Figure, title: str = "", height: int = 340) -> go.Figure:
+    """Applique le thème ultra premium transparent à une figure Plotly."""
     fig.update_layout(
-        title=dict(text=title, font=dict(family="Syne, sans-serif", size=14, color="#e2e8f0")),
+        title=dict(text=title, font=dict(family="Inter, sans-serif", size=16, color="#f8fafc", weight="bold")),
         paper_bgcolor=PLOTLY_THEME["paper_bgcolor"],
         plot_bgcolor=PLOTLY_THEME["plot_bgcolor"],
-        font=dict(color=PLOTLY_THEME["font_color"], family="DM Mono, monospace"),
+        font=dict(color=PLOTLY_THEME["font_color"], family="Inter, sans-serif"),
         height=height,
-        margin=dict(l=10, r=10, t=40, b=10),
-        xaxis=dict(gridcolor=PLOTLY_THEME["gridcolor"], showgrid=False),
-        yaxis=dict(gridcolor=PLOTLY_THEME["gridcolor"]),
-        legend=dict(bgcolor="rgba(0,0,0,0)"),
+        margin=dict(l=10, r=10, t=50, b=20),
+        xaxis=dict(gridcolor=PLOTLY_THEME["gridcolor"], showgrid=True, gridwidth=1, zeroline=False),
+        yaxis=dict(gridcolor=PLOTLY_THEME["gridcolor"], showgrid=True, gridwidth=1, zeroline=False),
+        legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="rgba(255,255,255,0.1)", borderwidth=1),
+        hoverlabel=dict(bgcolor="rgba(15, 23, 42, 0.9)", font_size=13, font_family="Inter"),
     )
     return fig
 
@@ -459,7 +520,7 @@ def color_for_value(val: Optional[float], low: float, high: float, inverse: bool
 
 def render_kpi_header(latest: pd.Series, currency: str = "USD") -> None:
     """Affiche les KPI principaux en haut du dashboard avec Plotly haut de gamme."""
-    section_header("📊 Indicateurs Clés — Dernière Année")
+    section_header("Key Performance Indicators")
     cols = st.columns(5)
 
     kpis = [
@@ -513,7 +574,7 @@ def render_kpi_header(latest: pd.Series, currency: str = "USD") -> None:
 
 def render_executive_summary(latest: pd.Series, prev: Optional[pd.Series]) -> None:
     """Génère un diagnostic textuel basé sur les résultats de la dernière année (Premium Feature)."""
-    section_header("🤖 Executive Summary")
+    section_header("Executive Summary")
     
     sentences = []
     
@@ -575,7 +636,7 @@ def render_executive_summary(latest: pd.Series, prev: Optional[pd.Series]) -> No
 
 def render_profitability(latest: pd.Series, prev: Optional[pd.Series]) -> None:
     """Section rentabilité avec tooltips."""
-    section_header("💹 Rentabilité")
+    section_header("Profitability Analysis")
     cols = st.columns(4)
     metrics = [
         ("Marge Nette", latest.get("net_margin"), prev.get("net_margin") if prev is not None else None,
@@ -600,7 +661,7 @@ def render_profitability(latest: pd.Series, prev: Optional[pd.Series]) -> None:
 
 def render_liquidity(latest: pd.Series, prev: Optional[pd.Series]) -> None:
     """Section liquidité avec tooltips."""
-    section_header("💧 Liquidité")
+    section_header("Liquidity Metrics")
     cols = st.columns(4)
     metrics = [
         ("Current Ratio", latest.get("current_ratio"), prev.get("current_ratio") if prev is not None else None,
@@ -632,7 +693,7 @@ def render_liquidity(latest: pd.Series, prev: Optional[pd.Series]) -> None:
 
 def render_solvency(latest: pd.Series, prev: Optional[pd.Series]) -> None:
     """Section solvabilité / levier avec tooltips."""
-    section_header("🏦 Solvabilité & Levier")
+    section_header("Solvency & Leverage")
     cols = st.columns(3)
     metrics = [
         ("Debt / Equity", latest.get("d_e_ratio"), prev.get("d_e_ratio") if prev is not None else None,
@@ -658,7 +719,7 @@ def render_solvency(latest: pd.Series, prev: Optional[pd.Series]) -> None:
 
 def render_scores(latest: pd.Series) -> None:
     """Section scores avancés (Altman, Piotroski, Composite)."""
-    section_header("🔬 Scores Avancés")
+    section_header("Advanced Health Scoring")
 
     col1, col2, col3 = st.columns(3)
 
@@ -725,10 +786,14 @@ def render_scores(latest: pd.Series) -> None:
                         "value": hs,
                     },
                 },
-                number={"font": {"color": hs_color, "family": "Syne"}},
+                number={"font": {"color": hs_color, "family": "Inter", "weight": "bold"}},
             ))
-            plotly_layout(fig, height=200)
-            fig.update_layout(margin=dict(l=20, r=20, t=30, b=5))
+            fig = plotly_layout(fig, height=220)
+            fig.update_layout(
+                margin=dict(l=20, r=20, t=40, b=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.markdown(f"""
@@ -745,7 +810,7 @@ def render_piotroski_details(latest: pd.Series) -> None:
     if not f_details or not isinstance(f_details, dict):
         return
 
-    section_header("📋 Détail Piotroski F-Score (Radar)")
+    section_header("Détail Piotroski F-Score (Radar)")
     details = f_details.get("details", {})
     
     # Plotly radar
@@ -800,13 +865,13 @@ def render_piotroski_details(latest: pd.Series) -> None:
 
 def render_charts(metrics_df: pd.DataFrame, currency: str = "USD") -> None:
     """Graphiques interactifs sur l'évolution temporelle."""
-    section_header("📈 Évolution Temporelle")
+    section_header("Évolution Temporelle")
 
     df = metrics_df.sort_values("year")
 
     tab1, tab2, tab3, tab4 = st.tabs([
-        "💰 Revenus & Marges", "📐 Liquidité & Levier",
-        "🏆 Scores", "📊 Rentabilité"
+        "Revenus & Marges", "Liquidité & Levier",
+        "Scores", "Rentabilité"
     ])
 
     # ── Tab 1 : Revenus & Marges ──
@@ -946,7 +1011,7 @@ def render_charts(metrics_df: pd.DataFrame, currency: str = "USD") -> None:
 
 def render_data_table(metrics_df: pd.DataFrame) -> None:
     """Affiche le tableau de données brutes et calculées."""
-    section_header("🗃️ Données Brutes & Calculées")
+    section_header("Données Brutes & Calculées")
 
     display_cols = [c for c in [
         "year", "revenue", "gross_profit", "net_income", "ebitda",
@@ -989,7 +1054,7 @@ def render_mapping_ui(df_raw: pd.DataFrame, detected_mapping: dict) -> dict:
     Affiche un formulaire permettant à l'utilisateur de confirmer ou corriger le mapping automatique.
     Retourne le mapping validé.
     """
-    section_header("🗺️ Mapping des Colonnes")
+    section_header("Mapping des Colonnes")
     st.markdown("""
     <div class="warning-box">
         ⚠️ Le mapping automatique a été effectué. Vérifiez et corrigez si nécessaire.
@@ -1045,7 +1110,7 @@ def main() -> None:
         st.markdown("""
         <div style="text-align:center;padding:16px 0 8px">
             <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#e2e8f0">
-                📊 FinHealth
+                FinHealth
             </div>
             <div style="font-size:11px;color:#64748b;margin-top:2px">
                 Analyzer v2.0
@@ -1057,7 +1122,7 @@ def main() -> None:
 
         data_source = st.radio(
             "Source de données",
-            ["🔍 Ticker (yfinance)", "📂 Upload Fichier"],
+            ["Ticker (yfinance)", "Upload Fichier"],
             label_visibility="collapsed",
         )
 
@@ -1087,7 +1152,7 @@ def main() -> None:
     """, unsafe_allow_html=True)
 
     # ─── Source : yfinance ───
-    if "🔍" in data_source:
+    if "Ticker" in data_source:
         col_search, col_btn = st.columns([3, 1])
         with col_search:
             ticker_input = st.text_input(
@@ -1184,7 +1249,7 @@ def main() -> None:
 
 def render_ai_assistant_tab(metrics_df: pd.DataFrame, company_info: dict) -> None:
     """Affiche le chat de l'Assistant IA basé sur la nouvelle API google-genai."""
-    st.markdown("### 💬 Assistant IA Financier")
+    st.markdown("### Assistant Financier")
     st.markdown("Posez vos questions sur la santé financière de l'entreprise étudiée. L'IA a accès à tous les ratios calculés.")
 
     # Vérification de la clé API
@@ -1200,7 +1265,7 @@ def render_ai_assistant_tab(metrics_df: pd.DataFrame, company_info: dict) -> Non
     # Bouton pour effacer l'historique
     col1, col2 = st.columns([8, 2])
     with col2:
-        if st.button("🗑️ Effacer l'historique", use_container_width=True):
+        if st.button("Effacer l'historique", use_container_width=True):
             st.session_state.messages = []
             st.rerun()
 
@@ -1282,7 +1347,7 @@ def _render_full_dashboard(metrics_df: pd.DataFrame, currency: str) -> None:
 
     company_info = st.session_state.get("company_info", {})
 
-    tab_dash, tab_ai = st.tabs(["📊 Dashboard Principal", "💬 Assistant IA"])
+    tab_dash, tab_ai = st.tabs(["Dashboard", "Assistant"])
 
     with tab_dash:
         latest = metrics_df.iloc[-1]
