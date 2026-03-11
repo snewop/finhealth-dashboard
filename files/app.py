@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import traceback
 import re
+import sys
+import os
 from typing import Optional
+
+# Ensure that the 'files' directory is in the path to fix Streamlit Cloud ImportError
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import pandas as pd
 import plotly.express as px
