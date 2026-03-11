@@ -10,8 +10,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+import time
 import pandas as pd
-import requests_cache
 import yfinance as yf
 
 
@@ -233,10 +233,18 @@ def load_from_yfinance(ticker: str) -> tuple[pd.DataFrame, dict, dict]:
     Lève une ValueError si le ticker est introuvable ou les données vides.
     """
     try:
-        session = requests_cache.CachedSession('yfinance.cache')
-        session.headers['User-agent'] = 'finhealth-dashboard/1.0'
-        ticker_obj = yf.Ticker(ticker.upper().strip(), session=session)
-        info = ticker_obj.info
+        # Retry mechanism for Too Many Requests (429)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                ticker_obj = yf.Ticker(ticker.upper().strip())
+                info = ticker_obj.info
+                break  # Success
+            except Exception as e:
+                if '429' in str(e) and attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                else:
+                    raise
 
         # Vérification basique que le ticker existe
         if not info or info.get("regularMarketPrice") is None and info.get("currentPrice") is None:
