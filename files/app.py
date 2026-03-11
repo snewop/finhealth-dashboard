@@ -1167,11 +1167,11 @@ def main() -> None:
     with st.sidebar:
         st.markdown("""
         <div style="text-align:center;padding:16px 0 8px">
-            <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#e2e8f0">
-                FinHealth
+            <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:#e2e8f0;display:flex;align-items:center;justify-content:center;gap:8px;">
+                <span style="font-size:28px;">📈</span> FinHealth
             </div>
             <div style="font-size:11px;color:#64748b;margin-top:2px">
-                Analyzer v2.0
+                Analyzer v2.1
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1216,6 +1216,18 @@ def main() -> None:
         st.divider()
 
         st.markdown("""
+        <div style="font-size:12px;color:#e2e8f0;line-height:1.6;margin-bottom:8px">
+            <strong>📖 Méthodologie</strong><br>
+            <span style="color:#94a3b8;font-size:11px;">
+            • <strong>Altman Z-Score</strong> : Prédit la probabilité de faillite à 2 ans via des ratios de liquidité et rentabilité.<br>
+            • <strong>Piotroski F-Score</strong> : Évalue la solidité et la tendance financière sur 9 critères stricts (Score 0-9).
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.divider()
+
+        st.markdown("""
         <div style="font-size:12px;color:#94a3b8;line-height:1.6;margin-bottom:8px">
             <strong>À propos</strong><br>
             Données de marché par <a href="https://finance.yahoo.com/" target="_blank" style="color:#38bdf8;text-decoration:none;">Yahoo Finance</a>.<br>
@@ -1245,8 +1257,6 @@ def main() -> None:
 
     # ─── Source : yfinance ───
     if "Ticker" in data_source:
-        col_search, col_btn = st.columns([3, 1])
-        
         default_ticker = ""
         do_auto_search = False
         if st.session_state.get("analyze_ticker"):
@@ -1254,20 +1264,17 @@ def main() -> None:
             do_auto_search = True
             st.session_state["analyze_ticker"] = ""
             
-        with col_search:
-            ticker_input = st.text_input(
-                "Ticker boursier",
-                value=default_ticker,
-                placeholder="Ex : AAPL, MSFT, TTE.PA, MC.PA ...",
-                label_visibility="collapsed",
-            )
-        with col_btn:
-            search_btn = st.button("Analyser", use_container_width=True)
+        ticker_input = st.text_input(
+            "Ticker boursier",
+            value=default_ticker,
+            placeholder="Rechercher un Ticker (ex: AAPL) et appuyer sur Entrée...",
+            label_visibility="collapsed",
+        )
 
         # L'appui sur 'Enter' lance un rerun Streamlit avec la nouvelle valeur de ticker_input
-        # On exécute l'analyse si le bouton est cliqué, s'il y a une recherche auto (landing page)
+        # On exécute l'analyse s'il y a une recherche auto (landing page)
         # OU si le ticker a été modifié (appui sur Enter)
-        trigger_analysis = search_btn or do_auto_search or (ticker_input and ticker_input != st.session_state.get("last_analyzed_ticker", ""))
+        trigger_analysis = do_auto_search or (ticker_input and ticker_input != st.session_state.get("last_analyzed_ticker", ""))
 
         if trigger_analysis and ticker_input:
             st.session_state["last_analyzed_ticker"] = ticker_input
