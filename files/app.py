@@ -479,6 +479,22 @@ def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFram
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def generate_ai_explanation(metric_name: str, value: float, ticker: str) -> str:
+    api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else None
+    if not api_key or api_key in ["VOTRE_CLE_API_GEMINI_ICI", "TO_BE_FILLED_BY_USER", ""]:
+        return "Clé API intégrée ou locale requise pour l'analyse IA."
+        
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        
+        prompt = f"Tu es un analyste financier senior. Explique de manière ultra-concise (2-3 phrases) ce que signifie un {metric_name} de {value} pour l'entreprise {ticker}. Est-ce bon ou mauvais ?"
+        response = client.chats.create(model="gemini-2.5-flash").send_message(prompt).text
+        return response
+    except Exception as e:
+        return f"Erreur IA : {str(e)}"
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def analyze_sentiment_and_cashflow(ticker: str, news: list[dict], latest_metrics: dict) -> tuple[str, str, int]:
     try:
         api_key = st.secrets.get("GEMINI_API_KEY")
@@ -1022,6 +1038,40 @@ def render_charts(metrics_df: pd.DataFrame, currency: str = "USD") -> None:
                               fillcolor="#ef4444", opacity=0.05, annotation_text="Zone Danger")
                 plotly_layout(fig, "Altman Z-Score")
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # --- AI Button ---
+                if st.button("💡 Analyse IA Z-Score", key="btn_ai_zscore"):
+                    latest_z = df["z_score"].iloc[-1]
+                    ticker = st.session_state.get("company_info", {}).get("name", "l'entreprise")
+                    with st.spinner("Analyse IA..."):
+                        expl = generate_ai_explanation("Altman Z-Score", latest_z, ticker)
+                    st.info(expl)
+
+                # --- WHAT IF SCENARIO ---
+                st.markdown("##### 🧪 Scénario 'What-If' (Stress Test)")
+                drop_pct = st.slider("Baisse simulée du Chiffre d'Affaires (%)", min_value=0, max_value=20, value=0, step=5)
+                
+                if drop_pct > 0 and 'df_raw' in st.session_state:
+                    latest_raw = st.session_state['df_raw'].iloc[-1]
+                    mcap = st.session_state.get('market_data', {}).get(latest_raw['year'], {}).get('market_cap', 0)
+                    if not pd.isna(mcap) and mcap > 0:
+                        original_revenue = latest_raw.get("revenue", 0)
+                        sim_revenue = original_revenue * (1 - (drop_pct / 100))
+                        
+                        # Recalculate z-score
+                        from finance_metrics import altman_z_score
+                        wc = compute_working_capital(latest_raw)
+                        ret_earn = latest_raw.get("retained_earnings", 0)
+                        ebit = latest_raw.get("ebit", 0)
+                        tot_liab = latest_raw.get("total_liabilities", 0)
+                        tot_assets = latest_raw.get("total_assets", 0)
+                        
+                        sim_z = altman_z_score(wc, ret_earn, ebit, mcap, tot_liab, sim_revenue, tot_assets)
+                        latest_z = df["z_score"].iloc[-1]
+                        
+                        if sim_z is not None:
+                            delta = sim_z - latest_z
+                            st.metric(label="Z-Score Simulé", value=f"{sim_z:.2f}", delta=f"{delta:.2f}")
 
         with col2:
             if "f_score" in df.columns and df["f_score"].notna().any():
@@ -1053,6 +1103,14 @@ def render_charts(metrics_df: pd.DataFrame, currency: str = "USD") -> None:
                     ))
             plotly_layout(fig, "ROE et ROA (%)")
             st.plotly_chart(fig, use_container_width=True)
+            
+            # --- AI Button ---
+            if st.button("💡 Analyse IA Rentabilité (ROE)", key="btn_ai_roe"):
+                latest_roe = df["roe"].iloc[-1] * 100 if "roe" in df.columns else 0
+                ticker = st.session_state.get("company_info", {}).get("name", "l'entreprise")
+                with st.spinner("Analyse IA..."):
+                    expl = generate_ai_explanation("ROE (Return on Equity)", latest_roe, ticker)
+                st.info(expl)
 
         with col2:
             if "health_score" in df.columns and df["health_score"].notna().any():
