@@ -1512,33 +1512,26 @@ def main() -> None:
             st.sidebar.markdown("### 🧠 Intelligence & Sentiment")
             
             score_color = "#22c55e" if score >= 60 else ("#f59e0b" if score >= 40 else "#ef4444")
-            # Forcing markdown inside list with a smaller class isn't ideal, let's just use raw html
-            # Turn markdown bullets into raw html for robust rendering inside the custom div
-            import markdown
-            sentiment_html = markdown.markdown(sentiment_text)
+            score_label = "Bullish 📈" if score >= 60 else ("Neutre 😐" if score >= 40 else "Bearish 📉")
             
             st.sidebar.markdown(f"""
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;">
-                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;font-weight:600;">Index de Sentiment (GenAI)</div>
-                <div style="display:flex;align-items:center;gap:12px;">
-                    <div style="font-size:24px;font-weight:700;color:{score_color};">{score}/100</div>
-                    <div style="flex-grow:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden;border:1px solid var(--border);">
-                        <div style="height:100%;width:{score}%;background:{score_color};box-shadow:0 0 10px {score_color};"></div>
-                    </div>
-                </div>
-            </div>
-            
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;font-size:12px;line-height:1.5;">
-                <div style="font-weight:600;margin-bottom:6px;color:var(--text);border-bottom:1px solid var(--border);padding-bottom:4px;">Résumé Actualités</div>
-                <div style="color:var(--muted);">{sentiment_html}</div>
-            </div>
-            
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;font-size:12px;line-height:1.5;">
-                <div style="font-weight:600;margin-bottom:6px;color:var(--text);border-bottom:1px solid var(--border);padding-bottom:4px;">Détection d'Anomalie (Cash Flow)</div>
-                <div style="color:var(--muted);">{cf_anomaly}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.sidebar.divider()
+<div style="background:#0f172a;border:1px solid #1e3a5f;border-radius:10px;padding:12px;margin-bottom:10px;">
+  <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Index de Sentiment</div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div style="font-size:22px;font-weight:700;color:{score_color};">{score}/100</div>
+    <div style="flex-grow:1;height:6px;background:#1e293b;border-radius:3px;overflow:hidden;">
+      <div style="height:100%;width:{score}%;background:{score_color};"></div>
+    </div>
+    <div style="font-size:11px;color:{score_color};font-weight:600;">{score_label}</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+            with st.sidebar.expander("📰 Résumé Actualités", expanded=True):
+                st.markdown(sentiment_text)
+
+            with st.sidebar.expander("💧 Anomalie Cash Flow", expanded=False):
+                st.markdown(cf_anomaly)
             # --------------------------------------------------------
 
             _render_full_dashboard(metrics_df, disp_currency)
