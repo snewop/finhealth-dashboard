@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import time
 import pandas as pd
+import streamlit as st
 import yfinance as yf
 
 
@@ -224,6 +225,7 @@ def _yfin_series_to_row(series: pd.Series, year: int) -> dict:
     return row
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_from_yfinance(ticker: str) -> tuple[pd.DataFrame, dict, dict]:
     """
     Récupère les états financiers annuels pour le ticker donné via yfinance.

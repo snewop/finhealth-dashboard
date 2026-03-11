@@ -52,8 +52,8 @@ from finance_metrics import (
 # ─────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="FinHealth Analyzer",
-    page_icon="📊",
+    page_title="FinHealth Analyzer v2.1",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -354,6 +354,7 @@ def plotly_layout(fig: go.Figure, title: str = "", height: int = 340) -> go.Figu
 # Calculs par ligne du DataFrame
 # ─────────────────────────────────────────────
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFrame:
     """
     Calcule tous les ratios et scores pour chaque ligne (année) du DataFrame.
