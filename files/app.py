@@ -97,10 +97,11 @@ st.markdown("""
     }
 
     section[data-testid="stSidebar"] {
-        background: rgba(2, 6, 23, 0.8) !important;
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border-right: 1px solid var(--border) !important;
+        background: linear-gradient(180deg, rgba(2, 6, 23, 0.95) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
+        box-shadow: 2px 0 20px rgba(0, 0, 0, 0.5);
     }
 
     .metric-card {
@@ -1176,6 +1177,8 @@ def main() -> None:
         """, unsafe_allow_html=True)
 
         st.divider()
+        
+        st.markdown("### 🛠️ Configuration")
 
         data_source = st.radio(
             "Source de données",
@@ -1188,8 +1191,40 @@ def main() -> None:
         currency = st.selectbox("Devise d'affichage", ["USD", "EUR", "GBP", "JPY"], index=0)
 
         st.divider()
+
+        # Indicateur IA
+        try:
+            api_key = st.secrets.get("GEMINI_API_KEY")
+        except Exception:
+            api_key = None
+            
+        if api_key and api_key not in ["VOTRE_CLE_API_GEMINI_ICI", "TO_BE_FILLED_BY_USER", ""]:
+            st.markdown("""
+            <div style="display:flex;align-items:center;gap:8px;background:rgba(16, 185, 129, 0.1);border:1px solid rgba(16, 185, 129, 0.3);border-radius:8px;padding:8px 12px;margin-bottom:16px;">
+                <div style="width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;"></div>
+                <span style="color:#10b981;font-size:13px;font-weight:600;">Assistant IA : Connecté</span>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="display:flex;align-items:center;gap:8px;background:rgba(239, 68, 68, 0.1);border:1px solid rgba(239, 68, 68, 0.3);border-radius:8px;padding:8px 12px;margin-bottom:16px;">
+                <div style="width:8px;height:8px;border-radius:50%;background:#ef4444;box-shadow:0 0 8px #ef4444;"></div>
+                <span style="color:#ef4444;font-size:13px;font-weight:600;">Assistant IA : Déconnecté</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.divider()
+
         st.markdown("""
-        <div style="font-size:10px;color:#334155;text-align:center;line-height:1.6">
+        <div style="font-size:12px;color:#94a3b8;line-height:1.6;margin-bottom:8px">
+            <strong>À propos</strong><br>
+            Données de marché par <a href="https://finance.yahoo.com/" target="_blank" style="color:#38bdf8;text-decoration:none;">Yahoo Finance</a>.<br>
+            Analyse propulsée par <strong style="color:#e2e8f0;">Gemini 1.5 Flash</strong>.
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div style="font-size:10px;color:#334155;text-align:center;line-height:1.6;margin-top:24px;">
             Ratios calculés selon les normes IFRS/GAAP.<br>
             Pour usage analytique uniquement.
         </div>
@@ -1229,7 +1264,13 @@ def main() -> None:
         with col_btn:
             search_btn = st.button("Analyser", use_container_width=True)
 
-        if (search_btn or do_auto_search) and ticker_input:
+        # L'appui sur 'Enter' lance un rerun Streamlit avec la nouvelle valeur de ticker_input
+        # On exécute l'analyse si le bouton est cliqué, s'il y a une recherche auto (landing page)
+        # OU si le ticker a été modifié (appui sur Enter)
+        trigger_analysis = search_btn or do_auto_search or (ticker_input and ticker_input != st.session_state.get("last_analyzed_ticker", ""))
+
+        if trigger_analysis and ticker_input:
+            st.session_state["last_analyzed_ticker"] = ticker_input
             with st.spinner(f"Chargement des données pour **{ticker_input.upper()}**..."):
                 try:
                     df_raw, company_info, market_data = load_from_yfinance(ticker_input)
@@ -1323,7 +1364,11 @@ def render_ai_assistant_tab(metrics_df: pd.DataFrame, company_info: dict) -> Non
     st.markdown("Posez vos questions sur la santé financière de l'entreprise étudiée. L'IA a accès à tous les ratios calculés.")
 
     # Vérification de la clé API
-    api_key = st.secrets.get("GEMINI_API_KEY")
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY")
+    except Exception:
+        api_key = None
+        
     if not api_key or api_key == "VOTRE_CLE_API_GEMINI_ICI" or api_key == "TO_BE_FILLED_BY_USER":
         st.info("ℹ️ La clé API Gemini n'est pas configurée. Veuillez l'ajouter dans vos secrets Streamlit (`.streamlit/secrets.toml` en local ou Streamlit Cloud Secrets) pour activer l'assistant.")
         return
