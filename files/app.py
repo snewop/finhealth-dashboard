@@ -16,6 +16,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from data_handler import (
+    YFRateLimitError,
     apply_mapping,
     clean_financial_df,
     compute_working_capital,
@@ -1107,6 +1108,9 @@ def main() -> None:
                     st.session_state["mapping"] = None  # déjà canonique
                     st.session_state["currency"] = company_info.get("currency", currency)
                     st.session_state["source"] = "yfinance"
+                except YFRateLimitError as e:
+                    st.warning(f"⚠️ {e}")
+                    return
                 except ValueError as e:
                     st.error(f"❌ {e}")
                     return

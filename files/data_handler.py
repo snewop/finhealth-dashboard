@@ -8,11 +8,14 @@ Supporte : fichiers Excel/CSV uploadés (avec mapping dynamique) et l'API yfinan
 from __future__ import annotations
 
 import re
-from typing import Optional
-
 import time
 import pandas as pd
 import yfinance as yf
+
+
+class YFRateLimitError(ValueError):
+    """Exception spécifique pour les blocages d'IP (Ex: Streamlit Cloud)."""
+    pass
 
 
 # ─────────────────────────────────────────────
@@ -235,14 +238,23 @@ def load_from_yfinance(ticker: str) -> tuple[pd.DataFrame, dict, dict]:
     try:
         # Retry mechanism for Too Many Requests (429)
         max_retries = 3
+        last_exception = None
         for attempt in range(max_retries):
             try:
                 ticker_obj = yf.Ticker(ticker.upper().strip())
                 info = ticker_obj.info
                 break  # Success
             except Exception as e:
-                if '429' in str(e) and attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                last_exception = e
+                if '429' in str(e) or 'Rate limited' in str(e):
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                    else:
+                        raise YFRateLimitError(
+                            "Yahoo Finance bloque temporairement l'IP des serveurs virtuels de Streamlit (Erreur 429). "
+                            "Pour analyser cette entreprise, veuillez utiliser l'option 'Upload Fichier' avec vos données, "
+                            "ou lancez l'application en local où cela fonctionne parfaitement."
+                        ) from e
                 else:
                     raise
 
