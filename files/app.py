@@ -8,6 +8,7 @@ Lancer avec : streamlit run app.py
 from __future__ import annotations
 
 import traceback
+import re
 from typing import Optional
 
 import pandas as pd
@@ -26,6 +27,7 @@ from data_handler import (
     format_ratio,
     load_from_file,
     load_from_yfinance,
+    load_news_from_yfinance,
     safe_get,
 )
 from finance_metrics import (
@@ -473,6 +475,60 @@ def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFram
     )
 
     return metrics_df
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def analyze_sentiment_and_cashflow(ticker: str, news: list[dict], latest_metrics: dict) -> tuple[str, str, int]:
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY")
+    except Exception:
+        api_key = None
+        
+    if not api_key or api_key in ["VOTRE_CLE_API_GEMINI_ICI", "TO_BE_FILLED_BY_USER", ""]:
+        return "Clé API intégrée ou locale requise.", "Non analysé.", 50
+
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+
+        news_text = "\n".join([f"- {n.get('title', '')}" for n in news[:10]])
+        ni = format_large_number(latest_metrics.get("net_income"))
+        ocf = format_large_number(latest_metrics.get("operating_cash_flow"))
+        
+        prompt = f"""
+Tu es un analyste quantitatif senior.
+1. Lis ces titres d'actualité récents pour le ticker {ticker} :
+{news_text}
+Génère un résumé macro ultra-concis en 3 petits bullet points (Bullish vs Bearish) et donne un SCORE de sentiment de 0 (Très Bearish) à 100 (Très Bullish).
+
+2. Analyse ces métriques pour détecter une potentielle anomalie :
+- Résultat Net : {ni}
+- Cash Flow Opérationnel (CFO) : {ocf}
+Le Cash Flow Opérationnel est-il cohérent par rapport au résultat net ? (Réponds en 1 à 2 phrases max, sois ultra-direct).
+
+Format strict demandé (respecte exactement la casse de ces balises) :
+SCORE: [0-100]
+SENTIMENT:
+- [Point 1]
+- [Point 2]
+- [Point 3]
+ANOMALIE_CF:
+[Analyse Cash Flow]
+"""
+        response = client.chats.create(model="gemini-2.5-flash").send_message(prompt).text
+        
+        score_match = re.search(r"SCORE:\s*(\d+)", response)
+        score = int(score_match.group(1)) if score_match else 50
+        
+        sent_match = re.search(r"SENTIMENT:(.*?)(?=ANOMALIE_CF:|$)", response, re.DOTALL)
+        sentiment_text = sent_match.group(1).strip() if sent_match else "Analyse indisponible."
+        
+        cf_match = re.search(r"ANOMALIE_CF:(.*?)$", response, re.DOTALL)
+        cf_anomaly = cf_match.group(1).strip() if cf_match else "Analyse indisponible."
+        
+        return sentiment_text, cf_anomaly, score
+    except Exception as e:
+        return f"Erreur IA : {str(e)}", "Erreur réseau", 50
 
 
 # ─────────────────────────────────────────────
@@ -1320,6 +1376,44 @@ def main() -> None:
 
             with st.spinner("Calcul des métriques..."):
                 metrics_df = compute_all_metrics(df_raw, market_data)
+
+            # --- MODULE 1 : INTELLIGENCE & SENTIMENT (SIDEBAR) ---
+            with st.spinner("Analyse IA en cours (Sentiment & Cash Flow)..."):
+                news = load_news_from_yfinance(ticker_input, limit=10)
+                latest_metrics = metrics_df.iloc[-1].to_dict() if len(metrics_df) > 0 else {}
+                sentiment_text, cf_anomaly, score = analyze_sentiment_and_cashflow(ticker_input, news, latest_metrics)
+                
+            st.sidebar.markdown("### 🧠 Intelligence & Sentiment")
+            
+            score_color = "#22c55e" if score >= 60 else ("#f59e0b" if score >= 40 else "#ef4444")
+            # Forcing markdown inside list with a smaller class isn't ideal, let's just use raw html
+            # Turn markdown bullets into raw html for robust rendering inside the custom div
+            import markdown
+            sentiment_html = markdown.markdown(sentiment_text)
+            
+            st.sidebar.markdown(f"""
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;">
+                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;font-weight:600;">Index de Sentiment (GenAI)</div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <div style="font-size:24px;font-weight:700;color:{score_color};">{score}/100</div>
+                    <div style="flex-grow:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden;border:1px solid var(--border);">
+                        <div style="height:100%;width:{score}%;background:{score_color};box-shadow:0 0 10px {score_color};"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;font-size:12px;line-height:1.5;">
+                <div style="font-weight:600;margin-bottom:6px;color:var(--text);border-bottom:1px solid var(--border);padding-bottom:4px;">Résumé Actualités</div>
+                <div style="color:var(--muted);">{sentiment_html}</div>
+            </div>
+            
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;font-size:12px;line-height:1.5;">
+                <div style="font-weight:600;margin-bottom:6px;color:var(--text);border-bottom:1px solid var(--border);padding-bottom:4px;">Détection d'Anomalie (Cash Flow)</div>
+                <div style="color:var(--muted);">{cf_anomaly}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.sidebar.divider()
+            # --------------------------------------------------------
 
             _render_full_dashboard(metrics_df, disp_currency)
         else:
