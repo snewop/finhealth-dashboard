@@ -11,6 +11,7 @@ import re
 from typing import Optional
 
 import pandas as pd
+import requests_cache
 import yfinance as yf
 
 
@@ -232,7 +233,9 @@ def load_from_yfinance(ticker: str) -> tuple[pd.DataFrame, dict, dict]:
     Lève une ValueError si le ticker est introuvable ou les données vides.
     """
     try:
-        ticker_obj = yf.Ticker(ticker.upper().strip())
+        session = requests_cache.CachedSession('yfinance.cache')
+        session.headers['User-agent'] = 'finhealth-dashboard/1.0'
+        ticker_obj = yf.Ticker(ticker.upper().strip(), session=session)
         info = ticker_obj.info
 
         # Vérification basique que le ticker existe
