@@ -1509,6 +1509,8 @@ def main() -> None:
 
             with st.spinner("Calcul des métriques..."):
                 metrics_df = compute_all_metrics(df_raw, market_data)
+                st.session_state["metrics_df"] = metrics_df
+                st.session_state["current_ticker"] = ticker_input
 
             # --- Analysts Tab is now in _render_full_dashboard ---
             _render_full_dashboard(metrics_df, disp_currency)
@@ -1599,6 +1601,8 @@ def main() -> None:
 
                     with st.spinner("Calcul des métriques..."):
                         metrics_df = compute_all_metrics(df_mapped, {})
+                        st.session_state["metrics_df"] = metrics_df
+                        st.session_state["current_ticker"] = "Fichier"
 
                     _render_full_dashboard(metrics_df, currency)
 
