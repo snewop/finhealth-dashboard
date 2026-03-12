@@ -1,5 +1,6 @@
 streamlit==1.55.0
 pandas==2.3.3
+numpy
 yfinance==1.2.0
 plotly==6.6.0
 google-genai

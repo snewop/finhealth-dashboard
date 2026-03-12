@@ -17,25 +17,10 @@ from typing import Optional
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-
-from data_handler import (
-    YFRateLimitError,
-    apply_mapping,
-    clean_financial_df,
-    compute_working_capital,
-    detect_column_mapping,
-    format_large_number,
-    format_percent,
-    format_ratio,
-    get_sector_averages,
-    load_from_file,
-    load_from_yfinance,
-    load_news_from_yfinance,
-    safe_get,
-)
 from finance_metrics import (
     altman_z_score,
     altman_z_score_label,
@@ -53,6 +38,24 @@ from finance_metrics import (
     quick_ratio,
     return_on_assets,
     return_on_equity,
+    monte_carlo_simulation,
+    dcf_valuation,
+)
+from data_handler import (
+    YFRateLimitError,
+    apply_mapping,
+    clean_financial_df,
+    compute_working_capital,
+    detect_column_mapping,
+    format_large_number,
+    format_percent,
+    format_ratio,
+    get_sector_averages,
+    load_from_file,
+    load_from_yfinance,
+    load_news_from_yfinance,
+    get_historical_prices,
+    safe_get,
 )
 from pdf_report import generate_pdf_report
 
@@ -1376,13 +1379,14 @@ def main() -> None:
             label_visibility="collapsed",
         )
 
-        st.divider()
-
         currency = st.selectbox("Devise d'affichage", ["USD", "EUR", "GBP", "JPY"], index=0)
 
         st.divider()
 
-        # Indicateur IA
+        # ── Calculateur DCF (Fragment) ──
+        render_dcf_sidebar()
+
+        st.divider()
         try:
             api_key = st.secrets.get("GEMINI_API_KEY")
         except Exception:
@@ -1506,37 +1510,7 @@ def main() -> None:
             with st.spinner("Calcul des métriques..."):
                 metrics_df = compute_all_metrics(df_raw, market_data)
 
-            # --- MODULE 1 : INTELLIGENCE & SENTIMENT (SIDEBAR) ---
-            with st.spinner("Analyse IA en cours (Sentiment & Cash Flow)..."):
-                news = load_news_from_yfinance(ticker_input, limit=10)
-                latest_metrics = metrics_df.iloc[-1].to_dict() if len(metrics_df) > 0 else {}
-                sentiment_text, cf_anomaly, score = analyze_sentiment_and_cashflow(ticker_input, news, latest_metrics)
-                
-            st.sidebar.markdown("### 🧠 Intelligence & Sentiment")
-            
-            score_color = "#22c55e" if score >= 60 else ("#f59e0b" if score >= 40 else "#ef4444")
-            score_label = "Bullish 📈" if score >= 60 else ("Neutre 😐" if score >= 40 else "Bearish 📉")
-            
-            st.sidebar.markdown(f"""
-<div style="background:#0f172a;border:1px solid #1e3a5f;border-radius:10px;padding:12px;margin-bottom:10px;">
-  <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Index de Sentiment</div>
-  <div style="display:flex;align-items:center;gap:10px;">
-    <div style="font-size:22px;font-weight:700;color:{score_color};">{score}/100</div>
-    <div style="flex-grow:1;height:6px;background:#1e293b;border-radius:3px;overflow:hidden;">
-      <div style="height:100%;width:{score}%;background:{score_color};"></div>
-    </div>
-    <div style="font-size:11px;color:{score_color};font-weight:600;">{score_label}</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-            with st.sidebar.expander("📰 Résumé Actualités", expanded=True):
-                st.markdown(sentiment_text)
-
-            with st.sidebar.expander("💧 Anomalie Cash Flow", expanded=False):
-                st.markdown(cf_anomaly)
-            # --------------------------------------------------------
-
+            # --- Analysts Tab is now in _render_full_dashboard ---
             _render_full_dashboard(metrics_df, disp_currency)
         else:
             render_landing_page()
@@ -1630,6 +1604,112 @@ def main() -> None:
 
         with tab_portfolio:
             render_portfolio_analysis(currency)
+
+
+# ─────────────────────────────────────────────
+# DCF Sidebar Fragment
+# ─────────────────────────────────────────────
+
+@st.fragment
+def render_dcf_sidebar():
+    """Affiche un calculateur DCF interactif dans la sidebar."""
+    st.markdown("### 🧮 Calculateur DCF")
+    
+    if "metrics_df" not in st.session_state or st.session_state["metrics_df"].empty:
+        st.caption("Chargez un ticker pour activer le DCF.")
+        return
+
+    df = st.session_state["metrics_df"]
+    latest = df.iloc[-1]
+    ticker = st.session_state.get("current_ticker", "Ticker")
+    
+    # Hypothèses par défaut
+    fcf = latest.get("operating_cash_flow", 0) * 0.8 # Approximation
+    shares = latest.get("shares_outstanding", 1)
+    
+    st.markdown(f"**Ticker : {ticker}**")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        growth = st.slider("Croissance (%)", 0, 30, 10, 1, key="dcf_growth") / 100
+        wacc = st.slider("WACC / Taux (%)", 5, 20, 10, 1, key="dcf_wacc") / 100
+    with col2:
+        terminal = st.slider("Perpétuité (%)", 0, 5, 2, 1, key="dcf_term") / 100
+        years = 5
+
+    res = dcf_valuation(fcf, growth, terminal, wacc, years, shares)
+    
+    if "error" in res:
+        st.error(res["error"])
+    else:
+        fair_value = res["fair_value_per_share"]
+        if fair_value:
+            st.markdown(f"""
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center;">
+                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Fair Value Estimée</div>
+                <div style="font-size:24px;font-weight:700;color:var(--accent);">{fair_value:,.2f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+             st.markdown(f"""
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center;">
+                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Valeur Entreprise</div>
+                <div style="font-size:20px;font-weight:700;color:var(--accent);">{format_large_number(res['enterprise_value'])}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+# Monte Carlo Fragment
+# ─────────────────────────────────────────────
+
+@st.fragment
+def render_monte_carlo_section(ticker: str):
+    """Effectue et affiche une simulation de Monte Carlo."""
+    section_header("🎲 Simulation de Monte Carlo (1 An)")
+    
+    with st.spinner("Récupération des données historiques..."):
+        returns, last_price = get_historical_prices(ticker)
+    
+    if returns.empty or last_price == 0:
+        st.warning("Données historiques insuffisantes pour la simulation.")
+        return
+
+    sim_res = monte_carlo_simulation(last_price, daily_returns=returns)
+    stats = sim_res["stats"]
+    paths = sim_res["simulations"]
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        fig = go.Figure()
+        for i in range(min(50, len(paths))):
+            fig.add_trace(go.Scatter(y=paths[i], mode="lines", line=dict(width=1, color="rgba(56, 189, 248, 0.1)"), showlegend=False))
+        
+        fig.add_trace(go.Scatter(y=np.mean(paths, axis=0), mode="lines", line=dict(width=3, color="#38bdf8"), name="Moyenne"))
+        
+        plotly_layout(fig, f"Projection {ticker} (1000 simulations)")
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
+        
+    with col2:
+        st.markdown("##### 📈 Statistiques")
+        st.metric("Prix Actuel", f"{last_price:,.2f}")
+        st.metric("Moyenne Finale", f"{stats['mean']:,.2f}", delta=f"{(stats['mean']/last_price - 1)*100:.1f}%")
+        st.metric("Médiane", f"{stats['median']:,.2f}")
+        
+    with col3:
+        st.markdown("##### 🛡️ Risque / Probabilité")
+        st.markdown(f"- **P95 (Optimiste) :** {stats['p95']:,.2f}")
+        st.markdown(f"- **P5 (Pessimiste) :** {stats['p5']:,.2f}")
+        
+        upside = float(np.mean(paths[:, -1] > last_price)) * 100
+        st.markdown(f"""
+        <div style="background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:12px;margin-top:20px;text-align:center;">
+            <div style="font-size:11px;color:var(--muted);">Probabilité de Hausse</div>
+            <div style="font-size:24px;font-weight:700;color:var(--green);">{upside:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 @st.fragment
@@ -2076,6 +2156,58 @@ def _render_full_dashboard(metrics_df: pd.DataFrame, currency: str) -> None:
         render_piotroski_details(latest)
         render_charts(metrics_df, currency)
         render_data_table(metrics_df)
+
+        # --- Sentiment Analysis Section ---
+        st.divider()
+        col_s1, col_s2 = st.columns([1, 2])
+        
+        with col_s1:
+            section_header("🌡️ Sentiment de Marché")
+            ticker_symbol = st.session_state.get("current_ticker", "")
+            news = st.session_state.get("ticker_news", [])
+            latest_metrics_dict = latest.to_dict()
+            
+            with st.spinner("Analyse du sentiment via Gemini..."):
+                sentiment_summary, cf_analysis, sentiment_score = analyze_sentiment_and_cashflow(
+                    ticker_symbol, news, latest_metrics_dict
+                )
+            
+            fig_score = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = sentiment_score,
+                domain = {'x': [0, 1], 'y': [0, 1]},
+                title = {'text': "Sentiment Score", 'font': {'size': 16, 'color': "#94a3b8"}},
+                gauge = {
+                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "#475569"},
+                    'bar': {'color': "#38bdf8"},
+                    'bgcolor': "rgba(30, 41, 59, 0.5)",
+                    'borderwidth': 2,
+                    'bordercolor': "#475569",
+                    'steps': [
+                        {'range': [0, 40], 'color': 'rgba(239, 68, 68, 0.2)'},
+                        {'range': [40, 70], 'color': 'rgba(245, 158, 11, 0.2)'},
+                        {'range': [70, 100], 'color': 'rgba(16, 185, 129, 0.2)'}
+                    ],
+                }
+            ))
+            fig_score.update_layout(height=250, margin=dict(l=30, r=30, t=50, b=20), paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig_score, use_container_width=True)
+
+        with col_s2:
+            st.markdown("<div style='margin-top: 40px;'></div>", unsafe_allow_html=True)
+            ticker_name = company_info.get("name", ticker_symbol)
+            st.markdown(f"**Analyse Senior pour {ticker_name} :**")
+            st.markdown(f"""
+            <div style="background:var(--surface);border-left:4px solid var(--accent);padding:16px;border-radius:0 12px 12px 0;">
+                {sentiment_summary}
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown("**Anomalie Cash Flow :**")
+            st.info(cf_analysis)
+
+        # --- Monte Carlo Section ---
+        st.divider()
+        render_monte_carlo_section(st.session_state.get("current_ticker", ""))
 
         # ── Bouton Export PDF ──
         st.divider()

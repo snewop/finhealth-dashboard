@@ -296,3 +296,138 @@ def composite_health_score(
         return None
 
     return round((points / total_weight) * 100, 1)
+
+
+# ─────────────────────────────────────────────
+# Monte Carlo Simulation
+# ─────────────────────────────────────────────
+
+import numpy as np
+
+
+def monte_carlo_simulation(
+    last_price: float,
+    daily_returns: "pd.Series | None" = None,
+    mu: float | None = None,
+    sigma: float | None = None,
+    days: int = 252,
+    n_simulations: int = 1000,
+    seed: int = 42,
+) -> dict:
+    """
+    Simule n trajectoires de prix via mouvement brownien géométrique.
+
+    Paramètres :
+    - last_price : dernier cours connu
+    - daily_returns : Series de rendements quotidiens historiques (optionnel)
+    - mu, sigma : moyenne et écart-type quotidiens (calculés depuis daily_returns si None)
+    - days : horizon en jours de trading (défaut 252 = 1 an)
+    - n_simulations : nombre de trajectoires (défaut 1000)
+
+    Retourne un dict avec :
+    - simulations : array (n_simulations, days) de prix simulés
+    - stats : dict avec mean, median, p5, p95, last_price
+    """
+    rng = np.random.default_rng(seed)
+
+    if daily_returns is not None and len(daily_returns) > 10:
+        dr = daily_returns.dropna()
+        if mu is None:
+            mu = float(dr.mean())
+        if sigma is None:
+            sigma = float(dr.std())
+    else:
+        # Fallback : 8% annuel, 25% vol
+        if mu is None:
+            mu = 0.08 / 252
+        if sigma is None:
+            sigma = 0.25 / np.sqrt(252)
+
+    # GBM : S(t+1) = S(t) * exp((mu - 0.5*sigma^2)*dt + sigma*sqrt(dt)*Z)
+    dt = 1.0
+    drift = (mu - 0.5 * sigma ** 2) * dt
+    shock = sigma * np.sqrt(dt)
+
+    Z = rng.standard_normal((n_simulations, days))
+    daily_growth = np.exp(drift + shock * Z)
+
+    price_paths = np.zeros((n_simulations, days + 1))
+    price_paths[:, 0] = last_price
+
+    for t in range(days):
+        price_paths[:, t + 1] = price_paths[:, t] * daily_growth[:, t]
+
+    final_prices = price_paths[:, -1]
+
+    return {
+        "simulations": price_paths,
+        "stats": {
+            "last_price": last_price,
+            "mean": float(np.mean(final_prices)),
+            "median": float(np.median(final_prices)),
+            "p5": float(np.percentile(final_prices, 5)),
+            "p95": float(np.percentile(final_prices, 95)),
+            "std": float(np.std(final_prices)),
+        },
+    }
+
+
+# ─────────────────────────────────────────────
+# DCF (Discounted Cash Flow) Valuation
+# ─────────────────────────────────────────────
+
+def dcf_valuation(
+    free_cash_flow: float,
+    growth_rate: float = 0.05,
+    terminal_growth: float = 0.025,
+    discount_rate: float = 0.10,
+    projection_years: int = 5,
+    shares_outstanding: float | None = None,
+) -> dict:
+    """
+    Modèle DCF simplifié.
+
+    Paramètres :
+    - free_cash_flow : dernier Free Cash Flow annuel
+    - growth_rate : taux de croissance projeté (ex: 0.05 = 5%)
+    - terminal_growth : croissance perpétuelle (ex: 0.025 = 2.5%)
+    - discount_rate : WACC ou coût du capital (ex: 0.10 = 10%)
+    - projection_years : nombre d'années de projection
+    - shares_outstanding : nombre d'actions (pour prix par action)
+
+    Retourne un dict avec les projections, la valeur terminale, et la fair value.
+    """
+    if discount_rate <= terminal_growth:
+        return {"error": "Le taux d'actualisation doit être supérieur à la croissance perpétuelle."}
+
+    projected_fcfs = []
+    pv_fcfs = []
+    fcf = free_cash_flow
+
+    for yr in range(1, projection_years + 1):
+        fcf = fcf * (1 + growth_rate)
+        pv = fcf / ((1 + discount_rate) ** yr)
+        projected_fcfs.append({"year": yr, "fcf": fcf, "pv": pv})
+        pv_fcfs.append(pv)
+
+    # Terminal value (Gordon Growth Model)
+    terminal_fcf = fcf * (1 + terminal_growth)
+    terminal_value = terminal_fcf / (discount_rate - terminal_growth)
+    pv_terminal = terminal_value / ((1 + discount_rate) ** projection_years)
+
+    enterprise_value = sum(pv_fcfs) + pv_terminal
+
+    result = {
+        "projections": projected_fcfs,
+        "terminal_value": terminal_value,
+        "pv_terminal": pv_terminal,
+        "enterprise_value": enterprise_value,
+        "sum_pv_fcfs": sum(pv_fcfs),
+    }
+
+    if shares_outstanding and shares_outstanding > 0:
+        result["fair_value_per_share"] = enterprise_value / shares_outstanding
+    else:
+        result["fair_value_per_share"] = None
+
+    return result

@@ -414,6 +414,25 @@ def load_news_from_yfinance(ticker: str, limit: int = 10) -> list[dict]:
     except Exception as e:
         return []
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_historical_prices(ticker: str, period: str = "1y") -> tuple[pd.Series, float]:
+    """
+    Récupère les prix historiques et calcule les rendements quotidiens.
+    Retourne (Series des rendements quotidiens, dernier prix).
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker.upper().strip())
+        hist = ticker_obj.history(period=period)
+        if hist.empty:
+            return pd.Series(), 0.0
+        
+        last_price = float(hist["Close"].iloc[-1])
+        daily_returns = hist["Close"].pct_change().dropna()
+        return daily_returns, last_price
+    except Exception:
+        return pd.Series(), 0.0
+
+
 # Moyennes de marges sectorielles (Mock pour la V2.2)
 SECTOR_MARGINS = {
     "Technology": {"gross_profit_margin": 0.55, "ebitda_margin": 0.25, "net_profit_margin": 0.18},
