@@ -367,71 +367,74 @@ def plotly_layout(fig: go.Figure, title: str = "", height: int = 340) -> go.Figu
 def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFrame:
     """
     Calcule tous les ratios et scores pour chaque ligne (année) du DataFrame.
-    Les nouvelles colonnes sont ajoutées directement.
+    Optimisé : calculs vectorisés pandas puis Piotroski row-by-row (nécessite prev).
     """
-    result_rows = []
+    m = df.copy()
 
-    for i, (_, row) in enumerate(df.iterrows()):
-        r = row.to_dict()
+    # --- Helper vectorisé ---
+    def _col(name: str) -> pd.Series:
+        return m[name] if name in m.columns else pd.Series([None] * len(m), dtype="float64")
 
-        year = int(r.get("year", 0))
-        mkt = market_data.get(year, {})
+    def _vdiv(num: pd.Series, den: pd.Series) -> pd.Series:
+        return num / den.replace(0, pd.NA)
 
-        rev = safe_get(row, "revenue")
-        ni = safe_get(row, "net_income")
-        gp = safe_get(row, "gross_profit")
-        eb = safe_get(row, "ebitda")
-        ebit = safe_get(row, "ebit")
-        ta = safe_get(row, "total_assets")
-        ca = safe_get(row, "current_assets")
-        inv = safe_get(row, "inventories")
-        cash_val = safe_get(row, "cash")
-        cl = safe_get(row, "current_liabilities")
-        tl = safe_get(row, "total_liabilities")
-        td = safe_get(row, "total_debt")
-        eq = safe_get(row, "shareholders_equity")
-        re_ = safe_get(row, "retained_earnings")
-        ocf = safe_get(row, "operating_cash_flow")
-        ie = safe_get(row, "interest_expense")
-        shares = safe_get(row, "shares_outstanding") or mkt.get("shares_outstanding")
-        mkt_cap = mkt.get("market_cap")
+    rev = _col("revenue")
+    ni  = _col("net_income")
+    gp  = _col("gross_profit")
+    eb  = _col("ebitda")
+    ebit_s = _col("ebit")
+    ta  = _col("total_assets")
+    ca  = _col("current_assets")
+    inv_s = _col("inventories").fillna(0)
+    cash_s = _col("cash")
+    cl  = _col("current_liabilities")
+    tl  = _col("total_liabilities")
+    td  = _col("total_debt")
+    eq  = _col("shareholders_equity")
+    re_ = _col("retained_earnings")
+    ocf = _col("operating_cash_flow")
+    ie  = _col("interest_expense")
+    shares = _col("shares_outstanding")
 
-        wc = compute_working_capital(row)
+    # Inject market data for shares/market_cap
+    mkt_caps = []
+    for i, row in m.iterrows():
+        yr = int(row.get("year", 0))
+        mkt = market_data.get(yr, {})
+        if pd.isna(shares.loc[i]) or shares.loc[i] is None:
+            shares.loc[i] = mkt.get("shares_outstanding")
+        mkt_caps.append(mkt.get("market_cap"))
+    mkt_cap_s = pd.Series(mkt_caps, index=m.index, dtype="float64")
 
-        # Ratios
-        r["net_margin"] = net_profit_margin(ni, rev)
-        r["gross_margin"] = gross_profit_margin(gp, rev)
-        r["ebitda_margin"] = ebitda_margin(eb, rev)
-        r["roe"] = return_on_equity(ni, eq)
-        r["roa"] = return_on_assets(ni, ta)
-        r["current_ratio"] = current_ratio(ca, cl)
-        r["quick_ratio"] = quick_ratio(ca, inv or 0.0, cl)
-        r["cash_ratio"] = cash_ratio(cash_val, cl)
-        r["d_e_ratio"] = debt_to_equity(td, eq)
-        r["d_a_ratio"] = debt_to_assets(td, ta)
-        r["interest_coverage"] = interest_coverage(ebit, ie)
-        r["working_capital"] = wc
+    # --- Vectorized ratio calculations ---
+    m["net_margin"]    = _vdiv(ni, rev)
+    m["gross_margin"]  = _vdiv(gp, rev)
+    m["ebitda_margin"] = _vdiv(eb, rev)
+    m["roe"]           = _vdiv(ni, eq)
+    m["roa"]           = _vdiv(ni, ta)
+    m["current_ratio"] = _vdiv(ca, cl)
+    m["quick_ratio"]   = _vdiv(ca - inv_s, cl)
+    m["cash_ratio"]    = _vdiv(cash_s, cl)
+    m["d_e_ratio"]     = _vdiv(td, eq)
+    m["d_a_ratio"]     = _vdiv(td, ta)
+    m["interest_coverage"] = _vdiv(ebit_s, ie)
+    m["working_capital"] = ca - cl
 
-        # Altman Z-Score
-        r["z_score"] = altman_z_score(
-            working_capital=wc or 0.0,
-            retained_earnings=re_ or 0.0,
-            ebit=ebit or 0.0,
-            market_cap=mkt_cap or 0.0,
-            total_liabilities=tl or 0.0,
-            revenue=rev or 0.0,
-            total_assets=ta,
-        )
+    # Altman Z-Score (vectorized)
+    wc = m["working_capital"].fillna(0)
+    x1 = _vdiv(wc, ta).fillna(0)
+    x2 = _vdiv(re_.fillna(0), ta).fillna(0)
+    x3 = _vdiv(ebit_s.fillna(0), ta).fillna(0)
+    x4 = _vdiv(mkt_cap_s.fillna(0), tl.replace(0, pd.NA)).fillna(0)
+    x5 = _vdiv(rev.fillna(0), ta).fillna(0)
+    z_raw = 1.2 * x1 + 1.4 * x2 + 3.3 * x3 + 0.6 * x4 + 1.0 * x5
+    m["z_score"] = z_raw.where(ta.notna() & (ta != 0), other=pd.NA)
 
-        result_rows.append(r)
-
-    metrics_df = pd.DataFrame(result_rows)
-
-    # Piotroski F-Score (nécessite la ligne précédente)
+    # --- Piotroski F-Score (requires previous row, kept as loop) ---
     f_scores = []
-    for i in range(len(metrics_df)):
-        row = metrics_df.iloc[i]
-        prev = metrics_df.iloc[i - 1] if i > 0 else None
+    for i in range(len(m)):
+        row = m.iloc[i]
+        prev = m.iloc[i - 1] if i > 0 else None
 
         def mg(col: str, src=row) -> Optional[float]:
             v = src.get(col)
@@ -442,17 +445,14 @@ def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFram
                 return None
             return mg(col, prev)
 
-        lev_c = mg("d_a_ratio")
-        lev_p = mprev("d_a_ratio")
-
         f_dict = piotroski_f_score(
             net_income=mg("net_income") or 0.0,
             operating_cash_flow=mg("operating_cash_flow") or 0.0,
             roa_current=mg("roa") or 0.0,
             roa_previous=mprev("roa") or 0.0,
             accruals=0.0,
-            leverage_current=lev_c or 0.0,
-            leverage_previous=lev_p or 0.0,
+            leverage_current=mg("d_a_ratio") or 0.0,
+            leverage_previous=mprev("d_a_ratio") or 0.0,
             current_ratio_current=mg("current_ratio") or 0.0,
             current_ratio_previous=mprev("current_ratio") or 0.0,
             shares_current=mg("shares_outstanding") or 1.0,
@@ -465,11 +465,11 @@ def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFram
         )
         f_scores.append(f_dict)
 
-    metrics_df["f_score"] = [d["total"] for d in f_scores]
-    metrics_df["f_score_details"] = f_scores
+    m["f_score"] = [d["total"] for d in f_scores]
+    m["f_score_details"] = f_scores
 
-    # Composite score
-    metrics_df["health_score"] = metrics_df.apply(
+    # Composite score (vectorized via apply)
+    m["health_score"] = m.apply(
         lambda r: composite_health_score(
             net_margin=r.get("net_margin"),
             roe=r.get("roe"),
@@ -481,7 +481,7 @@ def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFram
         axis=1,
     )
 
-    return metrics_df
+    return m
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1632,8 +1632,9 @@ def main() -> None:
             render_portfolio_analysis(currency)
 
 
+@st.fragment
 def render_ai_assistant_tab(metrics_df: pd.DataFrame, company_info: dict) -> None:
-    """Affiche le chat de l'Assistant IA basé sur la nouvelle API google-genai."""
+    """Affiche le chat de l'Assistant IA basé sur la nouvelle API google-genai. Fragmented to avoid full page reload."""
     st.markdown("### Assistant Financier")
     st.markdown("Posez vos questions sur la santé financière de l'entreprise étudiée. L'IA a accès à tous les ratios calculés.")
 
@@ -2099,23 +2100,24 @@ def _render_full_dashboard(metrics_df: pd.DataFrame, currency: str) -> None:
             else:
                 ai_diag += f"Diagnostic de santé global : Préoccupant (Score: {hs:.1f}/100).\n"
 
-        try:
-            pdf_bytes = generate_pdf_report(
-                company_info=company_info,
-                latest=latest,
-                metrics_df=metrics_df,
-                ai_diagnostic=ai_diag,
-            )
-            company_name = company_info.get("name", "Entreprise").replace(" ", "_")
-            st.download_button(
-                label="📥 Télécharger le Rapport PDF",
-                data=pdf_bytes,
-                file_name=f"FinHealth_Report_{company_name}.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
-        except Exception as e:
-            st.error(f"Erreur lors de la génération du PDF : {e}")
+        with st.spinner("📥 Génération du rapport PDF en cours..."):
+            try:
+                pdf_bytes = generate_pdf_report(
+                    company_info=company_info,
+                    latest=latest,
+                    metrics_df=metrics_df,
+                    ai_diagnostic=ai_diag,
+                )
+                company_name = company_info.get("name", "Entreprise").replace(" ", "_")
+                st.download_button(
+                    label="📥 Télécharger le Rapport PDF",
+                    data=pdf_bytes,
+                    file_name=f"FinHealth_Report_{company_name}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            except Exception as e:
+                st.error(f"Erreur lors de la génération du PDF : {e}")
 
     with tab_ai:
         render_ai_assistant_tab(metrics_df, company_info)
