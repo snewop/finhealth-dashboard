@@ -54,6 +54,7 @@ from finance_metrics import (
     return_on_assets,
     return_on_equity,
 )
+from pdf_report import generate_pdf_report
 
 # ─────────────────────────────────────────────
 # Configuration globale
@@ -1371,7 +1372,7 @@ def main() -> None:
 
         data_source = st.radio(
             "Source de données",
-            ["Ticker (yfinance)", "Upload Fichier"],
+            ["Ticker (yfinance)", "⚔️ Versus Mode", "Upload Fichier"],
             label_visibility="collapsed",
         )
 
@@ -1444,8 +1445,8 @@ def main() -> None:
     </p>
     """, unsafe_allow_html=True)
 
-    # ─── Source : yfinance ───
-    if "Ticker" in data_source:
+    # ─── Source : yfinance (Single Ticker) ───
+    if "Ticker" in data_source and "Versus" not in data_source:
         default_ticker = ""
         do_auto_search = False
         if st.session_state.get("analyze_ticker"):
@@ -1460,9 +1461,6 @@ def main() -> None:
             label_visibility="collapsed",
         )
 
-        # L'appui sur 'Enter' lance un rerun Streamlit avec la nouvelle valeur de ticker_input
-        # On exécute l'analyse s'il y a une recherche auto (landing page)
-        # OU si le ticker a été modifié (appui sur Enter)
         trigger_analysis = do_auto_search or (ticker_input and ticker_input != st.session_state.get("last_analyzed_ticker", ""))
 
         if trigger_analysis and ticker_input:
@@ -1473,7 +1471,7 @@ def main() -> None:
                     st.session_state["df_raw"] = df_raw
                     st.session_state["company_info"] = company_info
                     st.session_state["market_data"] = market_data
-                    st.session_state["mapping"] = None  # déjà canonique
+                    st.session_state["mapping"] = None
                     st.session_state["currency"] = company_info.get("currency", currency)
                     st.session_state["source"] = "yfinance"
                 except YFRateLimitError as e:
@@ -1491,7 +1489,6 @@ def main() -> None:
             market_data = st.session_state.get("market_data", {})
             disp_currency = st.session_state.get("currency", currency)
 
-            # Info entreprise
             st.markdown(f"""
             <div style="background:#111827;border:1px solid #1e2d45;border-radius:12px;padding:16px;margin-bottom:16px">
                 <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#e2e8f0">
@@ -1544,45 +1541,95 @@ def main() -> None:
         else:
             render_landing_page()
 
+    # ─── Source : Versus Mode ───
+    elif "Versus" in data_source:
+        st.markdown("""
+        <div style="background:linear-gradient(135deg, rgba(56,189,248,0.08), rgba(168,85,247,0.08));
+                    border:1px solid rgba(168,85,247,0.2);border-radius:12px;padding:16px;margin-bottom:20px">
+            <div style="font-size:20px;font-weight:700;color:#e2e8f0">⚔️ Mode Comparatif</div>
+            <div style="font-size:13px;color:#94a3b8;margin-top:4px">Comparez deux entreprises côte à côte</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        vcol1, vcol2 = st.columns(2)
+        with vcol1:
+            ticker_a = st.text_input("Ticker A", placeholder="Ex: AAPL", key="vs_ticker_a")
+        with vcol2:
+            ticker_b = st.text_input("Ticker B", placeholder="Ex: MSFT", key="vs_ticker_b")
+
+        if ticker_a and ticker_b:
+            if st.button("⚔️ Comparer", use_container_width=True, key="btn_versus"):
+                try:
+                    with st.spinner(f"Chargement de {ticker_a.upper()}..."):
+                        df_a, info_a, mkt_a = load_from_yfinance(ticker_a)
+                        metrics_a = compute_all_metrics(df_a, mkt_a)
+                    with st.spinner(f"Chargement de {ticker_b.upper()}..."):
+                        df_b, info_b, mkt_b = load_from_yfinance(ticker_b)
+                        metrics_b = compute_all_metrics(df_b, mkt_b)
+
+                    st.session_state["vs_data"] = {
+                        "metrics_a": metrics_a, "info_a": info_a,
+                        "metrics_b": metrics_b, "info_b": info_b,
+                    }
+                except Exception as e:
+                    st.error(f"❌ Erreur : {e}")
+
+            if "vs_data" in st.session_state:
+                vd = st.session_state["vs_data"]
+                render_versus_dashboard(
+                    vd["metrics_a"], vd["info_a"],
+                    vd["metrics_b"], vd["info_b"],
+                    currency,
+                )
+        else:
+            st.info("💡 Entrez deux tickers ci-dessus et cliquez sur **Comparer**.")
+
     # ─── Source : fichier ───
     else:
-        uploaded = st.file_uploader(
-            "Uploadez votre fichier financier",
-            type=["csv", "xlsx", "xls"],
-            help="Le fichier doit contenir une ligne par année avec les données financières.",
-        )
+        tab_file, tab_portfolio = st.tabs(["📄 Fichier Unique", "📊 Analyse de Portefeuille"])
 
-        if uploaded is not None:
-            try:
-                df_raw, detected_mapping = load_from_file(uploaded)
-            except ValueError as e:
-                st.error(f"❌ {e}")
-                return
+        with tab_file:
+            uploaded = st.file_uploader(
+                "Uploadez votre fichier financier",
+                type=["csv", "xlsx", "xls"],
+                help="Le fichier doit contenir une ligne par année avec les données financières.",
+                key="upload_single",
+            )
 
-            st.markdown(f"""
-            <div class="success-box">
-                ✅ Fichier chargé : {uploaded.name} — {len(df_raw)} lignes, {len(df_raw.columns)} colonnes
-            </div>
-            """, unsafe_allow_html=True)
+            if uploaded is not None:
+                try:
+                    df_raw, detected_mapping = load_from_file(uploaded)
+                except ValueError as e:
+                    st.error(f"❌ {e}")
+                    return
 
-            with st.expander("🔍 Aperçu du fichier brut", expanded=False):
-                st.dataframe(df_raw.head(10), use_container_width=True)
+                st.markdown(f"""
+                <div class="success-box">
+                    ✅ Fichier chargé : {uploaded.name} — {len(df_raw)} lignes, {len(df_raw.columns)} colonnes
+                </div>
+                """, unsafe_allow_html=True)
 
-            confirmed_mapping = render_mapping_ui(df_raw, detected_mapping)
+                with st.expander("🔍 Aperçu du fichier brut", expanded=False):
+                    st.dataframe(df_raw.head(10), use_container_width=True)
 
-            if st.button("▶️ Lancer l'analyse", use_container_width=True):
-                df_mapped = apply_mapping(df_raw, confirmed_mapping)
-                df_mapped = clean_financial_df(df_mapped)
+                confirmed_mapping = render_mapping_ui(df_raw, detected_mapping)
 
-                if "year" not in df_mapped.columns:
-                    df_mapped["year"] = range(
-                        2024 - len(df_mapped) + 1, 2025
-                    )
+                if st.button("▶️ Lancer l'analyse", use_container_width=True):
+                    df_mapped = apply_mapping(df_raw, confirmed_mapping)
+                    df_mapped = clean_financial_df(df_mapped)
 
-                with st.spinner("Calcul des métriques..."):
-                    metrics_df = compute_all_metrics(df_mapped, {})
+                    if "year" not in df_mapped.columns:
+                        df_mapped["year"] = range(
+                            2024 - len(df_mapped) + 1, 2025
+                        )
 
-                _render_full_dashboard(metrics_df, currency)
+                    with st.spinner("Calcul des métriques..."):
+                        metrics_df = compute_all_metrics(df_mapped, {})
+
+                    _render_full_dashboard(metrics_df, currency)
+
+        with tab_portfolio:
+            render_portfolio_analysis(currency)
 
 
 def render_ai_assistant_tab(metrics_df: pd.DataFrame, company_info: dict) -> None:
@@ -1689,6 +1736,320 @@ def render_ai_assistant_tab(metrics_df: pd.DataFrame, company_info: dict) -> Non
 
 
 
+# ─────────────────────────────────────────────
+# Versus Mode — Comparaison de deux entreprises
+# ─────────────────────────────────────────────
+
+def render_versus_dashboard(
+    metrics_a: pd.DataFrame, info_a: dict,
+    metrics_b: pd.DataFrame, info_b: dict,
+    currency: str,
+) -> None:
+    """Affiche un tableau de bord comparatif côte-à-côte."""
+    name_a = info_a.get("name", "Ticker A")
+    name_b = info_b.get("name", "Ticker B")
+
+    latest_a = metrics_a.iloc[-1]
+    latest_b = metrics_b.iloc[-1]
+
+    section_header(f"⚔️ {name_a}  vs  {name_b}")
+
+    # ── KPI Comparison Cards ──
+    section_header("Indicateurs Clés")
+    kpi_keys = [
+        ("Chiffre d'Affaires", "revenue", format_large_number),
+        ("Résultat Net", "net_income", format_large_number),
+        ("Marge Nette", "net_margin", format_percent),
+        ("ROE", "roe", format_percent),
+        ("Current Ratio", "current_ratio", format_ratio),
+        ("Debt/Equity", "d_e_ratio", format_ratio),
+        ("Altman Z-Score", "z_score", lambda v: f"{v:.2f}" if v is not None and not pd.isna(v) else "N/A"),
+        ("Score Santé", "health_score", lambda v: f"{v:.1f}/100" if v is not None and not pd.isna(v) else "N/A"),
+    ]
+
+    for label, key, fmt in kpi_keys:
+        c1, c2 = st.columns(2)
+        val_a = latest_a.get(key)
+        val_b = latest_b.get(key)
+        va = None if val_a is None or (isinstance(val_a, float) and pd.isna(val_a)) else float(val_a)
+        vb = None if val_b is None or (isinstance(val_b, float) and pd.isna(val_b)) else float(val_b)
+
+        def _winner_icon(va, vb, inverse=False):
+            if va is None or vb is None:
+                return "", ""
+            if inverse:
+                return ("🏆" if va < vb else ""), ("🏆" if vb < va else "")
+            return ("🏆" if va > vb else ""), ("🏆" if vb > va else "")
+
+        inv = key in ("d_e_ratio",)
+        icon_a, icon_b = _winner_icon(va, vb, inverse=inv)
+
+        with c1:
+            metric_card(f"{label} — {name_a}", f"{icon_a} {fmt(va)}", color="#38bdf8")
+        with c2:
+            metric_card(f"{label} — {name_b}", f"{icon_b} {fmt(vb)}", color="#a855f7")
+
+    # ── Superposed Revenue Chart ──
+    section_header("Évolution du Chiffre d'Affaires")
+    df_a = metrics_a.sort_values("year")
+    df_b = metrics_b.sort_values("year")
+
+    fig = go.Figure()
+    if "revenue" in df_a.columns and df_a["revenue"].notna().any():
+        fig.add_trace(go.Scatter(
+            x=df_a["year"], y=df_a["revenue"] / 1e9,
+            mode="lines+markers", name=name_a,
+            line=dict(color="#38bdf8", width=3),
+            marker=dict(size=7),
+        ))
+    if "revenue" in df_b.columns and df_b["revenue"].notna().any():
+        fig.add_trace(go.Scatter(
+            x=df_b["year"], y=df_b["revenue"] / 1e9,
+            mode="lines+markers", name=name_b,
+            line=dict(color="#a855f7", width=3),
+            marker=dict(size=7),
+        ))
+    plotly_layout(fig, "CA (Milliards)", height=380)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ── Superposed Margins ──
+    section_header("Marges Comparées")
+    col1, col2 = st.columns(2)
+    for col_plot, (margin_key, margin_label) in zip(
+        [col1, col2],
+        [("net_margin", "Marge Nette (%)"), ("roe", "ROE (%)")],
+    ):
+        with col_plot:
+            fig = go.Figure()
+            if margin_key in df_a.columns and df_a[margin_key].notna().any():
+                fig.add_trace(go.Scatter(
+                    x=df_a["year"], y=df_a[margin_key] * 100,
+                    mode="lines+markers", name=name_a,
+                    line=dict(color="#38bdf8", width=2),
+                ))
+            if margin_key in df_b.columns and df_b[margin_key].notna().any():
+                fig.add_trace(go.Scatter(
+                    x=df_b["year"], y=df_b[margin_key] * 100,
+                    mode="lines+markers", name=name_b,
+                    line=dict(color="#a855f7", width=2),
+                ))
+            plotly_layout(fig, margin_label)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # ── Health Score Radar ──
+    section_header("Radar Santé")
+    categories = ["Marge Nette", "ROE", "Current Ratio", "D/E (inv)", "Z-Score", "F-Score"]
+
+    def _norm(val, lo, hi):
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return 0
+        return max(0, min(1, (float(val) - lo) / (hi - lo))) if hi != lo else 0.5
+
+    def _radar_vals(latest):
+        return [
+            _norm(latest.get("net_margin"), -0.1, 0.3),
+            _norm(latest.get("roe"), -0.1, 0.4),
+            _norm(latest.get("current_ratio"), 0, 3),
+            1 - _norm(latest.get("d_e_ratio"), 0, 4),  # inverse
+            _norm(latest.get("z_score"), 0, 5),
+            _norm(latest.get("f_score"), 0, 9),
+        ]
+
+    vals_a = _radar_vals(latest_a)
+    vals_b = _radar_vals(latest_b)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=vals_a + [vals_a[0]], theta=categories + [categories[0]],
+        fill="toself", fillcolor="rgba(56,189,248,0.15)",
+        line=dict(color="#38bdf8", width=2), name=name_a,
+    ))
+    fig.add_trace(go.Scatterpolar(
+        r=vals_b + [vals_b[0]], theta=categories + [categories[0]],
+        fill="toself", fillcolor="rgba(168,85,247,0.15)",
+        line=dict(color="#a855f7", width=2), name=name_b,
+    ))
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 1], gridcolor="#1e2d45", color="#94a3b8"),
+            angularaxis=dict(gridcolor="#1e2d45", tickfont=dict(color="#e2e8f0", size=11)),
+            bgcolor="#111827",
+        ),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#e2e8f0"), height=420,
+        margin=dict(l=40, r=40, t=20, b=20),
+        legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="rgba(255,255,255,0.1)"),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# ─────────────────────────────────────────────
+# Analyse de Portefeuille (Bulk Upload)
+# ─────────────────────────────────────────────
+
+def render_portfolio_analysis(currency: str) -> None:
+    """Permet l'upload d'un CSV de portefeuille et calcule un score santé pondéré."""
+    st.markdown("""
+    <div style="background:linear-gradient(135deg, rgba(16,185,129,0.08), rgba(56,189,248,0.08));
+                border:1px solid rgba(16,185,129,0.2);border-radius:12px;padding:20px;margin-bottom:20px">
+        <div style="font-size:20px;font-weight:700;color:#e2e8f0">📊 Analyse de Portefeuille</div>
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px">Uploadez un CSV avec les colonnes <code>ticker</code> et <code>quantity</code> pour analyser la santé globale de votre portefeuille.</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:var(--muted)">
+        <strong>Format attendu :</strong><br>
+        <code>ticker,quantity</code><br>
+        <code>AAPL,50</code><br>
+        <code>MSFT,30</code><br>
+        <code>NVDA,20</code>
+    </div>
+    """, unsafe_allow_html=True)
+
+    portfolio_file = st.file_uploader(
+        "Uploadez votre fichier de portefeuille (CSV)",
+        type=["csv"],
+        key="upload_portfolio",
+    )
+
+    if portfolio_file is not None:
+        try:
+            portfolio_df = pd.read_csv(portfolio_file)
+        except Exception as e:
+            st.error(f"❌ Erreur de lecture : {e}")
+            return
+
+        # Normalize column names
+        portfolio_df.columns = [c.strip().lower() for c in portfolio_df.columns]
+
+        if "ticker" not in portfolio_df.columns or "quantity" not in portfolio_df.columns:
+            st.error("❌ Le fichier doit contenir les colonnes `ticker` et `quantity`.")
+            return
+
+        portfolio_df["quantity"] = pd.to_numeric(portfolio_df["quantity"], errors="coerce").fillna(0)
+        portfolio_df = portfolio_df[portfolio_df["quantity"] > 0]
+
+        if portfolio_df.empty:
+            st.warning("Le portefeuille est vide ou les quantités sont invalides.")
+            return
+
+        st.markdown(f"""
+        <div class="success-box">
+            ✅ Portefeuille chargé : {len(portfolio_df)} positions détectées
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("▶️ Analyser le portefeuille", use_container_width=True, key="btn_portfolio"):
+            results = []
+            total_qty = portfolio_df["quantity"].sum()
+            progress_bar = st.progress(0, text="Analyse en cours...")
+
+            for idx, row in portfolio_df.iterrows():
+                tick = str(row["ticker"]).strip().upper()
+                qty = float(row["quantity"])
+                pct = idx / len(portfolio_df)
+                progress_bar.progress(pct, text=f"Analyse de {tick}...")
+
+                try:
+                    df_raw, info, mkt = load_from_yfinance(tick)
+                    mdf = compute_all_metrics(df_raw, mkt)
+                    latest = mdf.iloc[-1]
+                    hs = latest.get("health_score")
+                    results.append({
+                        "ticker": tick,
+                        "name": info.get("name", tick),
+                        "sector": info.get("sector", "N/A"),
+                        "quantity": qty,
+                        "weight": qty / total_qty,
+                        "health_score": float(hs) if hs is not None and not pd.isna(hs) else None,
+                        "net_margin": latest.get("net_margin"),
+                        "roe": latest.get("roe"),
+                        "z_score": latest.get("z_score"),
+                        "f_score": latest.get("f_score"),
+                    })
+                except Exception as e:
+                    results.append({
+                        "ticker": tick, "name": tick, "sector": "Erreur",
+                        "quantity": qty, "weight": qty / total_qty,
+                        "health_score": None, "net_margin": None,
+                        "roe": None, "z_score": None, "f_score": None,
+                    })
+
+            progress_bar.progress(1.0, text="Terminé !")
+            st.session_state["portfolio_results"] = results
+
+        if "portfolio_results" in st.session_state:
+            results = st.session_state["portfolio_results"]
+            res_df = pd.DataFrame(results)
+
+            # ── Score Santé Moyen Pondéré ──
+            valid = res_df.dropna(subset=["health_score"])
+            if not valid.empty:
+                weighted_score = (valid["health_score"] * valid["weight"]).sum()
+                sc_color = "#22c55e" if weighted_score >= 65 else ("#f59e0b" if weighted_score >= 40 else "#ef4444")
+
+                section_header("Score Santé du Portefeuille")
+
+                # Gauge
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=weighted_score,
+                    domain={"x": [0, 1], "y": [0, 1]},
+                    title={"text": "Score Santé Moyen Pondéré", "font": {"color": "#94a3b8", "size": 14}},
+                    gauge={
+                        "axis": {"range": [0, 100], "tickcolor": "#334155"},
+                        "bar": {"color": sc_color},
+                        "bgcolor": "#1a2235",
+                        "steps": [
+                            {"range": [0, 40], "color": "#1f1018"},
+                            {"range": [40, 65], "color": "#1f1a0e"},
+                            {"range": [65, 100], "color": "#0e1f12"},
+                        ],
+                    },
+                    number={"font": {"color": sc_color, "family": "Inter", "weight": "bold"}},
+                ))
+                plotly_layout(fig, height=260)
+                fig.update_layout(
+                    margin=dict(l=20, r=20, t=40, b=10),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            # ── Table des résultats ──
+            section_header("Détail par Position")
+
+            display_df = res_df[["ticker", "name", "sector", "quantity", "health_score", "z_score", "f_score"]].copy()
+            display_df.columns = ["Ticker", "Nom", "Secteur", "Quantité", "Score Santé", "Z-Score", "F-Score"]
+            for c in ["Score Santé", "Z-Score"]:
+                display_df[c] = display_df[c].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "N/A")
+            display_df["F-Score"] = display_df["F-Score"].apply(lambda x: f"{int(x)}/9" if pd.notna(x) else "N/A")
+
+            st.dataframe(display_df.set_index("Ticker"), use_container_width=True)
+
+            # ── Weight pie chart ──
+            section_header("Répartition du Portefeuille")
+            fig_pie = go.Figure(go.Pie(
+                labels=res_df["ticker"],
+                values=res_df["quantity"],
+                hole=0.45,
+                marker=dict(colors=[
+                    "#38bdf8", "#a855f7", "#22c55e", "#f59e0b", "#ef4444",
+                    "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#6366f1",
+                ] * 5),
+                textinfo="label+percent",
+                textfont=dict(color="#e2e8f0", size=12),
+            ))
+            plotly_layout(fig_pie, height=380)
+            fig_pie.update_layout(showlegend=False)
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+
+# ─────────────────────────────────────────────
+# Dashboard principal + PDF
+# ─────────────────────────────────────────────
+
 def _render_full_dashboard(metrics_df: pd.DataFrame, currency: str) -> None:
     """Orchestre l'affichage complet du dashboard."""
     if metrics_df.empty:
@@ -1714,6 +2075,47 @@ def _render_full_dashboard(metrics_df: pd.DataFrame, currency: str) -> None:
         render_piotroski_details(latest)
         render_charts(metrics_df, currency)
         render_data_table(metrics_df)
+
+        # ── Bouton Export PDF ──
+        st.divider()
+        section_header("Export")
+
+        # Build the AI diagnostic text for the PDF
+        ai_diag = ""
+        nm = latest.get("net_margin")
+        hs = latest.get("health_score")
+        if nm is not None and not (isinstance(nm, float) and pd.isna(nm)):
+            if nm > 0.1:
+                ai_diag += f"Excellente rentabilité nette ({format_percent(nm)}).\n"
+            elif nm > 0:
+                ai_diag += f"Rentabilité positive mais contenue ({format_percent(nm)}).\n"
+            else:
+                ai_diag += f"La société est en perte avec une marge nette de {format_percent(nm)}.\n"
+        if hs is not None and not (isinstance(hs, float) and pd.isna(hs)):
+            if hs >= 70:
+                ai_diag += f"Diagnostic de santé global : Excellent (Score: {hs:.1f}/100).\n"
+            elif hs >= 40:
+                ai_diag += f"Diagnostic de santé global : Moyen/Stable (Score: {hs:.1f}/100).\n"
+            else:
+                ai_diag += f"Diagnostic de santé global : Préoccupant (Score: {hs:.1f}/100).\n"
+
+        try:
+            pdf_bytes = generate_pdf_report(
+                company_info=company_info,
+                latest=latest,
+                metrics_df=metrics_df,
+                ai_diagnostic=ai_diag,
+            )
+            company_name = company_info.get("name", "Entreprise").replace(" ", "_")
+            st.download_button(
+                label="📥 Télécharger le Rapport PDF",
+                data=pdf_bytes,
+                file_name=f"FinHealth_Report_{company_name}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"Erreur lors de la génération du PDF : {e}")
 
     with tab_ai:
         render_ai_assistant_tab(metrics_df, company_info)
