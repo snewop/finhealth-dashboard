@@ -17,7 +17,7 @@ import pandas as pd
 
 def _safe_divide(numerator: float, denominator: float, default: Optional[float] = None) -> Optional[float]:
     """Division sécurisée : retourne `default` si le dénominateur est nul ou None."""
-    if denominator is None or pd.isna(denominator) or denominator == 0:
+    if denominator is None or pd.isna(denominator) or float(denominator) == 0:
         return default
     if numerator is None or pd.isna(numerator):
         return default
@@ -89,7 +89,7 @@ def quick_ratio(current_assets: float, inventories: float, current_liabilities: 
     """
     if current_assets is None or inventories is None:
         return None
-    return _safe_divide(current_assets - inventories, current_liabilities)
+    return _safe_divide(float(current_assets) - float(inventories), current_liabilities)
 
 
 def cash_ratio(cash: float, current_liabilities: float) -> Optional[float]:

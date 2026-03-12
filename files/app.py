@@ -75,7 +75,7 @@ st.set_page_config(
 # ── Design CSS personnalisé ──
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&family=DM+Mono&display=swap');
 
     :root {
         --bg: #020617; /* Deep Dark Mode Base */
@@ -639,58 +639,22 @@ def color_for_value(val: Optional[float], low: float, high: float, inverse: bool
 # ─────────────────────────────────────────────
 
 def render_kpi_header(latest: pd.Series, currency: str = "USD") -> None:
-    """Affiche les KPI principaux en haut du dashboard avec Plotly haut de gamme."""
+    """Affiche les KPI principaux en haut du dashboard avec metric_card."""
     section_header("Key Performance Indicators")
     cols = st.columns(5)
 
     kpis = [
-        ("Chiffre d'Affaires", latest.get("revenue"), "revenue"),
-        ("Résultat Net", latest.get("net_income"), "net_income"),
-        ("Total Actif", latest.get("total_assets"), "total_assets"),
-        ("Capitaux Propres", latest.get("shareholders_equity"), "shareholders_equity"),
-        ("Trésorerie", latest.get("cash"), "cash"),
+        ("Chiffre d'Affaires", latest.get("revenue"), "revenue", "CA total de la période"),
+        ("Résultat Net", latest.get("net_income"), "net_income", "Bénéfice net après impôts"),
+        ("Total Actif", latest.get("total_assets"), "total_assets", "Total du bilan"),
+        ("Capitaux Propres", latest.get("shareholders_equity"), "shareholders_equity", "Valeur comptable nette"),
+        ("Trésorerie", latest.get("cash"), "cash", "Cash et équivalents"),
     ]
 
-    for col, (label, value, _) in zip(cols, kpis):
+    for col, (label, value, _, help_text) in zip(cols, kpis):
         with col:
             val_formatted = format_large_number(value, currency)
-            display_val = float(value) if pd.notna(value) else 0.0
-            fig = go.Figure()
-            fig.add_trace(go.Indicator(
-                mode="number",
-                value=display_val,
-                number={'valueformat': '.2s', 'prefix': '$' if currency == 'USD' else '€'},
-                title={"text": label, "font": {"size": 14, "color": "#94a3b8", "family": "Syne"}},
-                domain={'x': [0, 1], 'y': [0, 1]},
-            ))
-            fig.update_layout(
-                paper_bgcolor=PLOTLY_THEME["paper_bgcolor"],
-                plot_bgcolor=PLOTLY_THEME["plot_bgcolor"],
-                font=dict(color="#e2e8f0", family="DM Mono, monospace"),
-                height=120,
-                margin=dict(l=10, r=10, t=30, b=10),
-            )
-            # Custom formatting if Plotly formatting is not ideal
-            fig.data[0].number.valueformat = ""
-            fig.data[0].value = 0 # Avoid raw big numbers display issues
-            fig.update_traces(number={'font': {'size': 26, 'color': '#3b82f6', 'family': 'Syne'}})
-            
-            # Use raw markdown if plotly numbers are too constrained for complex currency formatting
-            # but user requested Plotly indicators. We'll use a styled Plotly indicator visually.
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-            
-            # Correction: The user asked for Plotly indicators, but formatting strings for diverse currencies is tricky in pure Plotly Indicators.
-            # Let's use the layout trick to show custom text while keeping the Plotly aesthetic.
-            fig.layout.annotations = [{
-                'text': val_formatted,
-                'x': 0.5, 'y': 0.45,
-                'showarrow': False,
-                'font': {'size': 28, 'color': '#3b82f6', 'family': 'Syne', 'weight': 'bold'}
-            }]
-            fig.update_traces(number={'font': {'size': 1}}) # hide original number
-            # We re-inject to display correctly.
-            col.empty() # Clear previous
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            metric_card(label, val_formatted, tooltip=help_text)
 
 
 def render_executive_summary(latest: pd.Series, prev: Optional[pd.Series]) -> None:
@@ -1615,8 +1579,15 @@ def render_dcf_sidebar():
     ticker = st.session_state.get("current_ticker", "Ticker")
     
     # Hypothèses par défaut
-    fcf = latest.get("operating_cash_flow", 0) * 0.8 # Approximation
-    shares = latest.get("shares_outstanding", 1)
+    raw_fcf = latest.get("operating_cash_flow")
+    shares = latest.get("shares_outstanding")
+    
+    if raw_fcf is None or pd.isna(raw_fcf) or shares is None or pd.isna(shares):
+        st.warning("⚠️ Données insuffisantes pour le DCF (Cash Flow ou Actions manquantes).")
+        return
+
+    fcf = float(raw_fcf) * 0.8 # Approximation simplified
+    shares = float(shares)
     
     st.markdown(f"**Ticker : {ticker}**")
     
