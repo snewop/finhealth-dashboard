@@ -595,10 +595,11 @@ def section_header(title: str) -> None:
 
 def color_for_value(val: Optional[float], low: float, high: float, inverse: bool = False) -> str:
     """Retourne une couleur selon que la valeur est dans la zone verte, ambre ou rouge."""
-    if val is None:
+    if val is None or pd.isna(val):
         return "#94a3b8"
-    good = val >= high if not inverse else val <= low
-    bad = val <= low if not inverse else val >= high
+    v = float(val)
+    good = v >= high if not inverse else v <= low
+    bad = v <= low if not inverse else v >= high
     if good:
         return "#22c55e"
     elif bad:
@@ -673,44 +674,50 @@ def render_executive_summary(latest: pd.Series, prev: Optional[pd.Series]) -> No
     # Check CA
     rev_c = latest.get("revenue")
     rev_p = prev.get("revenue") if prev is not None else None
-    if rev_c and rev_p and rev_p > 0:
-        croissance = (rev_c - rev_p) / rev_p
-        if croissance > 0.1:
-            sentences.append(f"🟢 **Forte croissance** des revenus retenue à **+{format_percent(croissance)}**, consolidant la dynamique commerciale.")
-        elif croissance > 0:
-            sentences.append(f"🟢 **Croissance modérée** des revenus à **+{format_percent(croissance)}**.")
-        else:
-            sentences.append(f"🔴 **Contraction du chiffre d'affaires** observée de **{format_percent(croissance)}** d'une année sur l'autre.")
+    if not pd.isna(rev_c) and not pd.isna(rev_p):
+        v_rev_c = float(rev_c)
+        v_rev_p = float(rev_p)
+        if v_rev_p > 0:
+            croissance = (v_rev_c - v_rev_p) / v_rev_p
+            if croissance > 0.1:
+                sentences.append(f"🟢 **Forte croissance** des revenus retenue à **+{format_percent(croissance)}**, consolidant la dynamique commerciale.")
+            elif croissance > 0:
+                sentences.append(f"🟢 **Croissance modérée** des revenus à **+{format_percent(croissance)}**.")
+            else:
+                sentences.append(f"🔴 **Contraction du chiffre d'affaires** observée de **{format_percent(croissance)}** d'une année sur l'autre.")
 
     # Check Rentabilité Nette
     nm = latest.get("net_margin")
-    if nm is not None:
-        if nm > 0.1:
+    if not pd.isna(nm):
+        v_nm = float(nm)
+        if v_nm > 0.1:
             sentences.append(f"🟢 Excellente **rentabilité nette** ({format_percent(nm)}), indiquant un très bon contrôle des coûts et un pricing power sain.")
-        elif nm > 0:
+        elif v_nm > 0:
             sentences.append(f"🟡 **Rentabilité positive** mais contenue ({format_percent(nm)}), des marges de manœuvre d'optimisation existent.")
         else:
             sentences.append(f"🔴 La société est **en perte** avec une marge nette de {format_percent(nm)}.")
             
     # Check Liquidité
     cr = latest.get("current_ratio")
-    if cr is not None:
-        if cr < 1:
-            sentences.append(f"🔴 **Alerte Liquidité** : Le ratio de liquidité générale ({cr:.2f}x) est sous 1, signifiant un risque de tension financière à court terme.")
-        elif cr > 2:
-            sentences.append(f"🟡 **Sur-liquidité possible** : Le ratio de liquidité générale est très élevé ({cr:.2f}x), suggérant une allocation de capital peut-être sous-optimale.")
+    if not pd.isna(cr):
+        v_cr = float(cr)
+        if v_cr < 1:
+            sentences.append(f"🔴 **Alerte Liquidité** : Le ratio de liquidité générale ({v_cr:.2f}x) est sous 1, signifiant un risque de tension financière à court terme.")
+        elif v_cr > 2:
+            sentences.append(f"🟡 **Sur-liquidité possible** : Le ratio de liquidité générale est très élevé ({v_cr:.2f}x), suggérant une allocation de capital peut-être sous-optimale.")
         else:
-            sentences.append(f"🟢 **Liquidité saine** ({cr:.2f}x), l'entreprise couvre confortablement ses obligations de court terme.")
+            sentences.append(f"🟢 **Liquidité saine** ({v_cr:.2f}x), l'entreprise couvre confortablement ses obligations de court terme.")
 
     # Check Score Sante
     hs = latest.get("health_score")
-    if hs is not None:
-        if hs >= 70:
-            sentences.append(f"🏆 Le diagnostic de santé global est **Excellent** (Score: {hs:.1f}/100).")
-        elif hs >= 40:
-            sentences.append(f"⚖️ Le diagnostic de santé global est **Moyen/Stable** (Score: {hs:.1f}/100).")
+    if not pd.isna(hs):
+        v_hs = float(hs)
+        if v_hs >= 70:
+            sentences.append(f"🏆 Le diagnostic de santé global est **Excellent** (Score: {v_hs:.1f}/100).")
+        elif v_hs >= 40:
+            sentences.append(f"⚖️ Le diagnostic de santé global est **Moyen/Stable** (Score: {v_hs:.1f}/100).")
         else:
-            sentences.append(f"⚠️ Le diagnostic de santé global est **Préoccupant** (Score: {hs:.1f}/100).")
+            sentences.append(f"⚠️ Le diagnostic de santé global est **Préoccupant** (Score: {v_hs:.1f}/100).")
 
     if not sentences:
         summary_text = "Pas assez de données pour générer un diagnostic pertinent."
@@ -744,8 +751,8 @@ def render_profitability(latest: pd.Series, prev: Optional[pd.Series]) -> None:
         with col:
             color = color_for_value(val, low, high, inv)
             delta = ""
-            if prev_val is not None and val is not None:
-                diff = val - prev_val
+            if not pd.isna(prev_val) and not pd.isna(val):
+                diff = float(val) - float(prev_val)
                 sign = "▲" if diff >= 0 else "▼"
                 delta = f"{sign} {fmt(abs(diff))}"
             metric_card(label, fmt(val), delta, color, tooltip)
@@ -773,9 +780,9 @@ def render_liquidity(latest: pd.Series, prev: Optional[pd.Series]) -> None:
         with col:
             color = color_for_value(val, low, high, inv)
             delta = ""
-            if prev_val is not None and val is not None:
+            if not pd.isna(prev_val) and not pd.isna(val):
                 try:
-                    diff = val - prev_val
+                    diff = float(val) - float(prev_val)
                     sign = "▲" if diff >= 0 else "▼"
                     delta = f"{sign} {fmt(abs(diff))}"
                 except Exception:
@@ -799,9 +806,9 @@ def render_solvency(latest: pd.Series, prev: Optional[pd.Series]) -> None:
         with col:
             color = color_for_value(val, low, high, inv)
             delta = ""
-            if prev_val is not None and val is not None:
+            if not pd.isna(prev_val) and not pd.isna(val):
                 try:
-                    diff = val - prev_val
+                    diff = float(val) - float(prev_val)
                     sign = "▲" if diff >= 0 else "▼"
                     delta = f"{sign} {fmt(abs(diff))}"
                 except Exception:
