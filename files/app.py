@@ -498,8 +498,11 @@ def generate_ai_explanation(metric_name: str, value: float, ticker: str) -> str:
         client = genai.Client(api_key=api_key)
         
         prompt = f"Tu es un analyste financier senior. Explique de manière ultra-concise (2-3 phrases) ce que signifie un {metric_name} de {value} pour l'entreprise {ticker}. Est-ce bon ou mauvais ?"
-        response = client.chats.create(model="gemini-2.5-flash").send_message(prompt).text
-        return response
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        return response.text
     except Exception as e:
         return f"Erreur IA : {str(e)}"
 
@@ -539,7 +542,10 @@ SENTIMENT:
 ANOMALIE_CF:
 <ton analyse du cash flow ici>
 """
-        response = client.chats.create(model="gemini-2.5-flash").send_message(prompt).text
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        ).text
         
         score_match = re.search(r"SCORE:\s*(\d+)", response)
         score = int(score_match.group(1)) if score_match else 50
@@ -1414,7 +1420,7 @@ def main() -> None:
         <div style="font-size:12px;color:#94a3b8;line-height:1.6;margin-bottom:8px">
             <strong>À propos</strong><br>
             Données de marché par <a href="https://finance.yahoo.com/" target="_blank" style="color:#38bdf8;text-decoration:none;">Yahoo Finance</a>.<br>
-            Analyse propulsée par <strong style="color:#e2e8f0;">Gemini 1.5 Flash</strong>.
+            Analyse propulsée par <strong style="color:#e2e8f0;">Gemini 2.5 Flash</strong>.
         </div>
         """, unsafe_allow_html=True)
 
@@ -1610,20 +1616,28 @@ def render_ai_assistant_tab(metrics_df: pd.DataFrame, company_info: dict) -> Non
     company_name = company_info.get("name", "l'entreprise")
     sector = company_info.get("sector", "Non spécifié")
     
+    def _safe_fmt(val, fmt_func=None, suffix=""):
+        """Safely format a value, returning 'N/A' for None/NaN."""
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return "N/A"
+        if fmt_func:
+            return fmt_func(val)
+        return f"{val}{suffix}"
+
     context = f"""
     Tu es un Analyste Financier Senior. Ton rôle est d'analyser les résultats d'une entreprise de manière pédagogique, structurée et précise, exclusivement en français.
     Tu aides un utilisateur à comprendre la santé financière de l'entreprise {company_name} (Secteur: {sector}).
     Voici les dernières métriques clés (Année {latest.get('year', 'N/A')}) :
-    - Chiffre d'Affaires : {format_large_number(latest.get('revenue')) if pd.notna(latest.get('revenue')) else 'N/A'}
-    - Résultat Net : {format_large_number(latest.get('net_income')) if pd.notna(latest.get('net_income')) else 'N/A'}
-    - Marge Nette : {format_percent(latest.get('net_margin')) if pd.notna(latest.get('net_margin')) else 'N/A'}
-    - ROE : {format_percent(latest.get('roe')) if pd.notna(latest.get('roe')) else 'N/A'}
-    - ROA : {format_percent(latest.get('roa')) if pd.notna(latest.get('roa')) else 'N/A'}
-    - Current Ratio (Liquidité) : {latest.get('current_ratio'):.2f}x si disponible
-    - Debt/Equity (Levier) : {latest.get('d_e_ratio'):.2f}x si disponible
-    - Altman Z-Score : {latest.get('z_score'):.2f} si disponible
-    - Piotroski F-Score : {latest.get('f_score')} / 9 si disponible
-    - Score Santé Global FiHealth : {latest.get('health_score'):.1f} / 100 si disponible
+    - Chiffre d'Affaires : {_safe_fmt(latest.get('revenue'), format_large_number)}
+    - Résultat Net : {_safe_fmt(latest.get('net_income'), format_large_number)}
+    - Marge Nette : {_safe_fmt(latest.get('net_margin'), format_percent)}
+    - ROE : {_safe_fmt(latest.get('roe'), format_percent)}
+    - ROA : {_safe_fmt(latest.get('roa'), format_percent)}
+    - Current Ratio (Liquidité) : {_safe_fmt(latest.get('current_ratio'), format_ratio)}
+    - Debt/Equity (Levier) : {_safe_fmt(latest.get('d_e_ratio'), format_ratio)}
+    - Altman Z-Score : {_safe_fmt(latest.get('z_score'), lambda v: f'{v:.2f}')}
+    - Piotroski F-Score : {_safe_fmt(latest.get('f_score'), lambda v: f'{int(v)} / 9')}
+    - Score Santé Global FiHealth : {_safe_fmt(latest.get('health_score'), lambda v: f'{v:.1f} / 100')}
     Réponds de manière concise et experte aux questions de l'utilisateur. Ne donne pas de conseils d'investissement garantis, garde un ton analytique.
     """
 
