@@ -402,6 +402,8 @@ def format_percent(value: Optional[float], decimals: int = 1) -> str:
 
 def format_ratio(value: Optional[float], decimals: int = 2) -> str:
     """Formate un ratio. Ex : 1.456 → '1.46x'"""
+    if value is None or pd.isna(value):
+        return "N/A"
     return f"{value:.{decimals}f}x"
 
 @st.cache_data(ttl=3600, show_spinner=False)

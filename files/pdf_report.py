@@ -198,7 +198,7 @@ def generate_pdf_report(
     de = _safe("d_e_ratio")
     ic = _safe("interest_coverage")
     ratios_solv = [
-        ("Debt / Equity", format_ratio(de), pdf._score_color(de, 0.5, 2.0) if de and de <= 2 else _RED if de else _MUTED),
+        ("Debt / Equity", format_ratio(de), pdf._score_color(de, 0.5, 2.0) if pd.notna(de) and de <= 2 else _RED if pd.notna(de) else _MUTED),
         ("Debt / Assets", format_ratio(_safe("d_a_ratio")), _TEXT),
         ("Couverture Intérêts", format_ratio(ic), pdf._score_color(ic, 2.0, 5.0)),
     ]
@@ -211,11 +211,11 @@ def generate_pdf_report(
     f = _safe("f_score")
     hs = _safe("health_score")
 
-    z_label = "Sûr" if z and z > 2.99 else ("Gris" if z and z > 1.81 else "Danger") if z else "N/A"
-    f_label = f"{int(f)} / 9" if f else "N/A"
-    hs_label = f"{hs:.1f} / 100" if hs else "N/A"
+    z_label = "Sûr" if pd.notna(z) and z > 2.99 else ("Gris" if pd.notna(z) and z > 1.81 else "Danger") if pd.notna(z) else "N/A"
+    f_label = f"{int(f)} / 9" if pd.notna(f) else "N/A"
+    hs_label = f"{float(hs):.1f} / 100" if pd.notna(hs) else "N/A"
 
-    pdf._kv("Altman Z-Score", f"{z:.2f} ({z_label})" if z else "N/A", pdf._score_color(z, 1.81, 2.99))
+    pdf._kv("Altman Z-Score", f"{float(z):.2f} ({z_label})" if pd.notna(z) else "N/A", pdf._score_color(z, 1.81, 2.99))
     pdf._kv("Piotroski F-Score", f_label, pdf._score_color(f, 4, 8))
     pdf._kv("Score Santé Composite", hs_label, pdf._score_color(hs, 40, 65))
 

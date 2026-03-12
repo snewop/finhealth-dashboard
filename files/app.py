@@ -431,7 +431,9 @@ def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFram
     x4 = _vdiv(mkt_cap_s.fillna(0), tl.replace(0, pd.NA)).fillna(0)
     x5 = _vdiv(rev.fillna(0), ta).fillna(0)
     z_raw = 1.2 * x1 + 1.4 * x2 + 3.3 * x3 + 0.6 * x4 + 1.0 * x5
-    m["z_score"] = z_raw.where(ta.notna() & (ta != 0), other=pd.NA)
+    # Ensure z_raw is handled as a Series for the .where method
+    z_series = pd.Series(z_raw, index=m.index) if not isinstance(z_raw, pd.Series) else z_raw
+    m["z_score"] = z_series.where(ta.notna() & (ta != 0), other=pd.NA)
 
     # --- Piotroski F-Score (requires previous row, kept as loop) ---
     f_scores = []
@@ -682,10 +684,11 @@ def render_kpi_header(latest: pd.Series, currency: str = "USD") -> None:
     for col, (label, value, _) in zip(cols, kpis):
         with col:
             val_formatted = format_large_number(value, currency)
+            display_val = float(value) if pd.notna(value) else 0.0
             fig = go.Figure()
             fig.add_trace(go.Indicator(
                 mode="number",
-                value=value if value and not pd.isna(value) else 0,
+                value=display_val,
                 number={'valueformat': '.2s', 'prefix': '$' if currency == 'USD' else '€'},
                 title={"text": label, "font": {"size": 14, "color": "#94a3b8", "family": "Syne"}},
                 domain={'x': [0, 1], 'y': [0, 1]},
