@@ -267,9 +267,11 @@ def composite_health_score(
 
     def add(value: Optional[float], weight: float, low: float, high: float) -> None:
         nonlocal points, total_weight
-        if value is None:
+        if value is None or pd.isna(value):
             return
-        normalized = max(0.0, min(1.0, (value - low) / (high - low)))
+        # Ensure value is float to avoid pd.NA issues in max/min
+        v = float(value)
+        normalized = max(0.0, min(1.0, (v - low) / (high - low)))
         points += normalized * weight
         total_weight += weight
 
@@ -278,18 +280,18 @@ def composite_health_score(
     add(current_ratio_val, 15, 0.5, 3.0)
 
     # Debt/Equity : plus c'est bas, mieux c'est → on inverse
-    if debt_equity is not None:
-        inv_de = max(0.0, min(1.0, 1.0 - (debt_equity / 5.0)))
+    if debt_equity is not None and not pd.isna(debt_equity):
+        inv_de = max(0.0, min(1.0, 1.0 - (float(debt_equity) / 5.0)))
         points += inv_de * 15
         total_weight += 15
 
-    if z_score is not None:
-        z_normalized = max(0.0, min(1.0, (z_score - 0) / 5.0))
+    if z_score is not None and not pd.isna(z_score):
+        z_normalized = max(0.0, min(1.0, (float(z_score) - 0) / 5.0))
         points += z_normalized * 15
         total_weight += 15
 
-    if f_score is not None:
-        points += (f_score / 9.0) * 15
+    if f_score is not None and not pd.isna(f_score):
+        points += (float(f_score) / 9.0) * 15
         total_weight += 15
 
     if total_weight == 0:
