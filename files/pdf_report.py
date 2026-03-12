@@ -153,9 +153,12 @@ def generate_pdf_report(
 
     def _safe(col: str) -> Optional[float]:
         v = latest.get(col)
-        if v is None or (isinstance(v, float) and pd.isna(v)):
+        if pd.isna(v):
             return None
-        return float(v)
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
 
     kpis = [
         ("Chiffre d'Affaires", format_large_number(_safe("revenue")), _TEXT),

@@ -593,6 +593,61 @@ def section_header(title: str) -> None:
     st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
 
 
+def get_diagnostic_sentences(latest: pd.Series, prev: Optional[pd.Series] = None) -> list[str]:
+    """Génère une liste de phrases de diagnostic avec une sécurité maximale sur les types pd.NA."""
+    sentences = []
+    
+    # Check CA
+    rev_c = latest.get("revenue")
+    rev_p = prev.get("revenue") if prev is not None else None
+    if pd.notna(rev_c) and pd.notna(rev_p):
+        v_rev_c = float(rev_c)
+        v_rev_p = float(rev_p)
+        if v_rev_p > 0:
+            croissance = (v_rev_c - v_rev_p) / v_rev_p
+            if croissance > 0.1:
+                sentences.append(f"🟢 **Forte croissance** des revenus retenue à **+{format_percent(croissance)}**, consolidant la dynamique commerciale.")
+            elif croissance > 0:
+                sentences.append(f"🟢 **Croissance modérée** des revenus à **+{format_percent(croissance)}**.")
+            else:
+                sentences.append(f"🔴 **Contraction du chiffre d'affaires** observée de **{format_percent(croissance)}** d'une année sur l'autre.")
+
+    # Check Rentabilité Nette
+    nm = latest.get("net_margin")
+    if pd.notna(nm):
+        v_nm = float(nm)
+        if v_nm > 0.1:
+            sentences.append(f"🟢 Excellente **rentabilité nette** ({format_percent(v_nm)}), indiquant un très bon contrôle des coûts et un pricing power sain.")
+        elif v_nm > 0:
+            sentences.append(f"🟡 **Rentabilité positive** mais contenue ({format_percent(v_nm)}), des marges de manœuvre d'optimisation existent.")
+        else:
+            sentences.append(f"🔴 La société est **en perte** avec une marge nette de {format_percent(v_nm)}.")
+            
+    # Check Liquidité
+    cr = latest.get("current_ratio")
+    if pd.notna(cr):
+        v_cr = float(cr)
+        if v_cr < 1:
+            sentences.append(f"🔴 **Alerte Liquidité** : Le ratio de liquidité générale ({v_cr:.2f}x) est sous 1, signifiant un risque de tension financière à court terme.")
+        elif v_cr > 2:
+            sentences.append(f"🟡 **Sur-liquidité possible** : Le ratio de liquidité générale est très élevé ({v_cr:.2f}x), suggérant une allocation de capital peut-être sous-optimale.")
+        else:
+            sentences.append(f"🟢 **Liquidité saine** ({v_cr:.2f}x), l'entreprise couvre confortablement ses obligations de court terme.")
+
+    # Check Score Sante
+    hs = latest.get("health_score")
+    if pd.notna(hs):
+        v_hs = float(hs)
+        if v_hs >= 70:
+            sentences.append(f"🏆 Le diagnostic de santé global est **Excellent** (Score: {v_hs:.1f}/100).")
+        elif v_hs >= 40:
+            sentences.append(f"⚖️ Le diagnostic de santé global est **Moyen/Stable** (Score: {v_hs:.1f}/100).")
+        else:
+            sentences.append(f"⚠️ Le diagnostic de santé global est **Préoccupant** (Score: {v_hs:.1f}/100).")
+            
+    return sentences
+
+
 def color_for_value(val: Optional[float], low: float, high: float, inverse: bool = False) -> str:
     """Retourne une couleur selon que la valeur est dans la zone verte, ambre ou rouge."""
     if val is None or pd.isna(val):
@@ -669,56 +724,8 @@ def render_executive_summary(latest: pd.Series, prev: Optional[pd.Series]) -> No
     """Génère un diagnostic textuel basé sur les résultats de la dernière année (Premium Feature)."""
     section_header("Executive Summary")
     
-    sentences = []
+    sentences = get_diagnostic_sentences(latest, prev)
     
-    # Check CA
-    rev_c = latest.get("revenue")
-    rev_p = prev.get("revenue") if prev is not None else None
-    if not pd.isna(rev_c) and not pd.isna(rev_p):
-        v_rev_c = float(rev_c)
-        v_rev_p = float(rev_p)
-        if v_rev_p > 0:
-            croissance = (v_rev_c - v_rev_p) / v_rev_p
-            if croissance > 0.1:
-                sentences.append(f"🟢 **Forte croissance** des revenus retenue à **+{format_percent(croissance)}**, consolidant la dynamique commerciale.")
-            elif croissance > 0:
-                sentences.append(f"🟢 **Croissance modérée** des revenus à **+{format_percent(croissance)}**.")
-            else:
-                sentences.append(f"🔴 **Contraction du chiffre d'affaires** observée de **{format_percent(croissance)}** d'une année sur l'autre.")
-
-    # Check Rentabilité Nette
-    nm = latest.get("net_margin")
-    if not pd.isna(nm):
-        v_nm = float(nm)
-        if v_nm > 0.1:
-            sentences.append(f"🟢 Excellente **rentabilité nette** ({format_percent(nm)}), indiquant un très bon contrôle des coûts et un pricing power sain.")
-        elif v_nm > 0:
-            sentences.append(f"🟡 **Rentabilité positive** mais contenue ({format_percent(nm)}), des marges de manœuvre d'optimisation existent.")
-        else:
-            sentences.append(f"🔴 La société est **en perte** avec une marge nette de {format_percent(nm)}.")
-            
-    # Check Liquidité
-    cr = latest.get("current_ratio")
-    if not pd.isna(cr):
-        v_cr = float(cr)
-        if v_cr < 1:
-            sentences.append(f"🔴 **Alerte Liquidité** : Le ratio de liquidité générale ({v_cr:.2f}x) est sous 1, signifiant un risque de tension financière à court terme.")
-        elif v_cr > 2:
-            sentences.append(f"🟡 **Sur-liquidité possible** : Le ratio de liquidité générale est très élevé ({v_cr:.2f}x), suggérant une allocation de capital peut-être sous-optimale.")
-        else:
-            sentences.append(f"🟢 **Liquidité saine** ({v_cr:.2f}x), l'entreprise couvre confortablement ses obligations de court terme.")
-
-    # Check Score Sante
-    hs = latest.get("health_score")
-    if not pd.isna(hs):
-        v_hs = float(hs)
-        if v_hs >= 70:
-            sentences.append(f"🏆 Le diagnostic de santé global est **Excellent** (Score: {v_hs:.1f}/100).")
-        elif v_hs >= 40:
-            sentences.append(f"⚖️ Le diagnostic de santé global est **Moyen/Stable** (Score: {v_hs:.1f}/100).")
-        else:
-            sentences.append(f"⚠️ Le diagnostic de santé global est **Préoccupant** (Score: {v_hs:.1f}/100).")
-
     if not sentences:
         summary_text = "Pas assez de données pour générer un diagnostic pertinent."
     else:
@@ -2225,23 +2232,8 @@ def _render_full_dashboard(metrics_df: pd.DataFrame, currency: str) -> None:
         section_header("Export")
 
         # Build the AI diagnostic text for the PDF
-        ai_diag = ""
-        nm = latest.get("net_margin")
-        hs = latest.get("health_score")
-        if nm is not None and not (isinstance(nm, float) and pd.isna(nm)):
-            if nm > 0.1:
-                ai_diag += f"Excellente rentabilité nette ({format_percent(nm)}).\n"
-            elif nm > 0:
-                ai_diag += f"Rentabilité positive mais contenue ({format_percent(nm)}).\n"
-            else:
-                ai_diag += f"La société est en perte avec une marge nette de {format_percent(nm)}.\n"
-        if hs is not None and not (isinstance(hs, float) and pd.isna(hs)):
-            if hs >= 70:
-                ai_diag += f"Diagnostic de santé global : Excellent (Score: {hs:.1f}/100).\n"
-            elif hs >= 40:
-                ai_diag += f"Diagnostic de santé global : Moyen/Stable (Score: {hs:.1f}/100).\n"
-            else:
-                ai_diag += f"Diagnostic de santé global : Préoccupant (Score: {hs:.1f}/100).\n"
+        diag_sentences = get_diagnostic_sentences(latest, prev)
+        ai_diag = "\n".join([s.replace("**", "") for s in diag_sentences])
 
         with st.spinner("📥 Génération du rapport PDF en cours..."):
             try:
