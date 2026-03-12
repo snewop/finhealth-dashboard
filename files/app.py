@@ -21,6 +21,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from concurrent.futures import ThreadPoolExecutor
 from finance_metrics import (
     altman_z_score,
     altman_z_score_label,
@@ -58,6 +59,7 @@ from data_handler import (
     safe_get,
 )
 from pdf_report import generate_pdf_report
+from ui_components import metric_card, section_header, plotly_layout, PLOTLY_THEME
 
 # ─────────────────────────────────────────────
 # Configuration globale
@@ -337,30 +339,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-PLOTLY_THEME = {
-    "paper_bgcolor": "rgba(0,0,0,0)",
-    "plot_bgcolor": "rgba(0,0,0,0)",
-    "font_color": "#94a3b8",
-    "gridcolor": "rgba(255,255,255,0.05)",
-}
-
-
-def plotly_layout(fig: go.Figure, title: str = "", height: int = 340) -> go.Figure:
-    """Applique le thème ultra premium transparent à une figure Plotly."""
-    fig.update_layout(
-        title=dict(text=title, font=dict(family="Inter, sans-serif", size=16, color="#f8fafc", weight="bold")),
-        paper_bgcolor=PLOTLY_THEME["paper_bgcolor"],
-        plot_bgcolor=PLOTLY_THEME["plot_bgcolor"],
-        font=dict(color=PLOTLY_THEME["font_color"], family="Inter, sans-serif"),
-        height=height,
-        margin=dict(l=10, r=10, t=50, b=20),
-        xaxis=dict(gridcolor=PLOTLY_THEME["gridcolor"], showgrid=True, gridwidth=1, zeroline=False),
-        yaxis=dict(gridcolor=PLOTLY_THEME["gridcolor"], showgrid=True, gridwidth=1, zeroline=False),
-        legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="rgba(255,255,255,0.1)", borderwidth=1),
-        hoverlabel=dict(bgcolor="rgba(15, 23, 42, 0.9)", font_size=13, font_family="Inter"),
-    )
-    return fig
-
 
 # ─────────────────────────────────────────────
 # Calculs par ligne du DataFrame
@@ -435,43 +413,54 @@ def compute_all_metrics(df: pd.DataFrame, market_data: dict = {}) -> pd.DataFram
     z_series = pd.Series(z_raw, index=m.index) if not isinstance(z_raw, pd.Series) else z_raw
     m["z_score"] = z_series.where(ta.notna() & (ta != 0), other=pd.NA)
 
-    # --- Piotroski F-Score (requires previous row, kept as loop) ---
-    f_scores = []
-    for i in range(len(m)):
-        row = m.iloc[i]
-        prev = m.iloc[i - 1] if i > 0 else None
-
-        def mg(col: str, src=row) -> Optional[float]:
-            v = src.get(col)
-            return float(v) if v is not None and not pd.isna(v) else None
-
-        def mprev(col: str) -> Optional[float]:
-            if prev is None:
-                return None
-            return mg(col, prev)
-
-        f_dict = piotroski_f_score(
-            net_income=mg("net_income") or 0.0,
-            operating_cash_flow=mg("operating_cash_flow") or 0.0,
-            roa_current=mg("roa") or 0.0,
-            roa_previous=mprev("roa") or 0.0,
+    # --- Piotroski F-Score (Vectorized) ---
+    prev = m.shift(1)
+    
+    # 1. Profitability (4 points)
+    f1 = (m["roa"] > 0).astype(int)
+    f2 = (m["operating_cash_flow"] > 0).astype(int)
+    f3 = (m["roa"] > prev["roa"].fillna(-np.inf)).astype(int)
+    # Accruals: OCF/TotalAssets > ROA
+    ocf_ta = _vdiv(m["operating_cash_flow"], ta).fillna(0)
+    f4 = (ocf_ta > m["roa"].fillna(np.inf)).astype(int)
+    
+    # 2. Leverage/Liquidity (3 points)
+    f5 = (m["d_a_ratio"].fillna(np.inf) < prev["d_a_ratio"].fillna(-np.inf)).astype(int)
+    f6 = (m["current_ratio"].fillna(-np.inf) > prev["current_ratio"].fillna(np.inf)).astype(int)
+    f7 = (m["shares_outstanding"].fillna(np.inf) <= prev["shares_outstanding"].fillna(-np.inf)).astype(int)
+    
+    # 3. Operating Efficiency (2 points)
+    f8 = (m["gross_margin"].fillna(-np.inf) > prev["gross_margin"].fillna(np.inf)).astype(int)
+    at = _vdiv(rev, ta).fillna(0)
+    prev_at = _vdiv(prev["revenue"], prev["total_assets"]).fillna(0)
+    f9 = (at > prev_at).astype(int)
+    
+    m["f_score"] = f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9
+    
+    # Details generator for UI/PDF (using apply for the dict structure)
+    def _get_f_details(row_idx):
+        r = m.iloc[row_idx]
+        p = prev.iloc[row_idx] if row_idx > 0 else None
+        return piotroski_f_score(
+            net_income=float(r.get("net_income") or 0),
+            operating_cash_flow=float(r.get("operating_cash_flow") or 0),
+            roa_current=float(r.get("roa") or 0),
+            roa_previous=float(p.get("roa") or 0) if p is not None else 0.0,
             accruals=0.0,
-            leverage_current=mg("d_a_ratio") or 0.0,
-            leverage_previous=mprev("d_a_ratio") or 0.0,
-            current_ratio_current=mg("current_ratio") or 0.0,
-            current_ratio_previous=mprev("current_ratio") or 0.0,
-            shares_current=mg("shares_outstanding") or 1.0,
-            shares_previous=mprev("shares_outstanding") or 1.0,
-            gross_margin_current=mg("gross_margin") or 0.0,
-            gross_margin_previous=mprev("gross_margin") or 0.0,
-            asset_turnover_current=(mg("revenue") or 0.0) / (mg("total_assets") or 1.0),
-            asset_turnover_previous=(mprev("revenue") or 0.0) / (mprev("total_assets") or 1.0),
-            total_assets=mg("total_assets") or 1.0,
+            leverage_current=float(r.get("d_a_ratio") or 0),
+            leverage_previous=float(p.get("d_a_ratio") or 0) if p is not None else 0.0,
+            current_ratio_current=float(r.get("current_ratio") or 0),
+            current_ratio_previous=float(p.get("current_ratio") or 0) if p is not None else 0.0,
+            shares_current=float(r.get("shares_outstanding") or 1),
+            shares_previous=float(p.get("shares_outstanding") or 1) if p is not None else 1.0,
+            gross_margin_current=float(r.get("gross_margin") or 0),
+            gross_margin_previous=float(p.get("gross_margin") or 0) if p is not None else 0.0,
+            asset_turnover_current=float(r.get("revenue") or 0) / float(r.get("total_assets") or 1),
+            asset_turnover_previous=(float(p.get("revenue") or 0) / float(p.get("total_assets") or 1)) if p is not None else 0.0,
+            total_assets=float(r.get("total_assets") or 1),
         )
-        f_scores.append(f_dict)
 
-    m["f_score"] = [d["total"] for d in f_scores]
-    m["f_score_details"] = f_scores
+    m["f_score_details"] = [_get_f_details(i) for i in range(len(m))]
 
     # Composite score (vectorized via apply)
     m["health_score"] = m.apply(
@@ -570,25 +559,6 @@ ANOMALIE_CF:
 # ─────────────────────────────────────────────
 # Composants UI réutilisables
 # ─────────────────────────────────────────────
-
-def metric_card(label: str, value: str, delta: str = "", color: str = "#e2e8f0", tooltip: str = "") -> None:
-    delta_html = f'<div class="metric-delta" style="color:{color}">{delta}</div>' if delta else ""
-    
-    # Intégration du tooltip si fourni
-    label_html = f"""
-    <div class="tooltip-container">
-        {label}
-        <span class="tooltip-text">{tooltip}</span>
-    </div>
-    """ if tooltip else f"{label}"
-
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">{label_html}</div>
-        <div class="metric-value" style="color:{color}">{value}</div>
-        {delta_html}
-    </div>
-    """, unsafe_allow_html=True)
 
 
 def section_header(title: str) -> None:
@@ -1823,15 +1793,16 @@ def render_ai_assistant_tab(metrics_df: pd.DataFrame, company_info: dict) -> Non
                 )
                 
                 chat = client.chats.create(
-                    model="gemini-2.5-flash",
+                    model="gemini-2.0-flash", # Fixed model name if necessary, usually flash is best for streaming
                     config=config,
                     history=gemini_history
                 )
                 
-                response = chat.send_message(prompt)
+                # Streaming generation
+                response_iterator = chat.send_message_stream(prompt)
+                full_response = st.write_stream(response_iterator)
                 
-                st.markdown(response.text)
-                st.session_state.messages.append({"role": "assistant", "content": response.text})
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
                 
             except Exception as e:
                 st.error(f"Erreur lors de la génération de la réponse : {str(e)}")
@@ -2043,40 +2014,49 @@ def render_portfolio_analysis(currency: str) -> None:
         """, unsafe_allow_html=True)
 
         if st.button("▶️ Analyser le portefeuille", use_container_width=True, key="btn_portfolio"):
-            results = []
             total_qty = portfolio_df["quantity"].sum()
             progress_bar = st.progress(0, text="Analyse en cours...")
-
-            for idx, row in portfolio_df.iterrows():
-                tick = str(row["ticker"]).strip().upper()
-                qty = float(row["quantity"])
-                pct = idx / len(portfolio_df)
-                progress_bar.progress(pct, text=f"Analyse de {tick}...")
-
+            
+            def _process_ticker(tick_data):
+                t, q = tick_data
                 try:
-                    df_raw, info, mkt = load_from_yfinance(tick)
+                    df_raw, info, mkt = load_from_yfinance(t)
                     mdf = compute_all_metrics(df_raw, mkt)
                     latest = mdf.iloc[-1]
                     hs = latest.get("health_score")
-                    results.append({
-                        "ticker": tick,
-                        "name": info.get("name", tick),
+                    return {
+                        "ticker": t,
+                        "name": info.get("name", t),
                         "sector": info.get("sector", "N/A"),
-                        "quantity": qty,
-                        "weight": qty / total_qty,
+                        "quantity": q,
+                        "weight": q / total_qty,
                         "health_score": float(hs) if hs is not None and not pd.isna(hs) else None,
                         "net_margin": latest.get("net_margin"),
                         "roe": latest.get("roe"),
                         "z_score": latest.get("z_score"),
                         "f_score": latest.get("f_score"),
-                    })
-                except Exception as e:
-                    results.append({
-                        "ticker": tick, "name": tick, "sector": "Erreur",
-                        "quantity": qty, "weight": qty / total_qty,
+                    }
+                except Exception:
+                    return {
+                        "ticker": t, "name": t, "sector": "Erreur",
+                        "quantity": q, "weight": q / total_qty,
                         "health_score": None, "net_margin": None,
                         "roe": None, "z_score": None, "f_score": None,
-                    })
+                    }
+
+            tickers_to_process = [(str(row["ticker"]).strip().upper(), float(row["quantity"])) 
+                                 for _, row in portfolio_df.iterrows()]
+            
+            results = []
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                from concurrent.futures import as_completed
+                futures = {executor.submit(_process_ticker, tp): tp for tp in tickers_to_process}
+                
+                for i, future in enumerate(as_completed(futures)):
+                    res = future.result()
+                    results.append(res)
+                    pct = (i + 1) / len(tickers_to_process)
+                    progress_bar.progress(pct, text=f"Analyse de {res['ticker']} terminée...")
 
             progress_bar.progress(1.0, text="Terminé !")
             st.session_state["portfolio_results"] = results
